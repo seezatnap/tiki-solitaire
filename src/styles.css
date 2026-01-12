@@ -1,6 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Space+Grotesk:wght@400;500;600&display=swap');
 
-/* CSS Reset and Base Styles */
 * {
     margin: 0;
     padding: 0;
@@ -29,14 +28,11 @@
     --success-color: #46c072;
     --danger-color: #f04e45;
     --chain-connector-color: #ffd700;
-    --wood-base: #2b1a10;
-    --wood-highlight: #3a2416;
     --workyard-glow: rgba(246, 195, 67, 0.18);
 }
 
-html, body {
+html, body, #root {
     height: 100%;
-    overflow: hidden;
 }
 
 body {
@@ -71,7 +67,6 @@ body::before {
     z-index: 1;
 }
 
-/* Header */
 header {
     display: flex;
     justify-content: space-between;
@@ -142,18 +137,6 @@ main {
     overflow: hidden;
 }
 
-main > section {
-    opacity: 0;
-    transform: translateY(8px);
-    transition: opacity 0.6s ease, transform 0.6s ease;
-}
-
-body.loaded main > section {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-/* Section Headers */
 section h2 {
     font-size: 0.95rem;
     margin-bottom: 6px;
@@ -191,7 +174,6 @@ section h3 span {
     letter-spacing: 0.5px;
 }
 
-/* Workyard */
 #workyard {
     background: linear-gradient(135deg, rgba(13, 40, 30, 0.92), rgba(10, 25, 20, 0.92));
     border-radius: 8px;
@@ -233,8 +215,7 @@ section h3 span {
     flex-wrap: wrap;
 }
 
-/* Chain Area */
-#chain-area {
+#chains-area {
     background: rgba(0, 0, 0, 0.25);
     border-radius: 6px;
     padding: 8px;
@@ -245,7 +226,7 @@ section h3 span {
     z-index: 1;
 }
 
-.chain-header {
+.chains-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -277,27 +258,85 @@ section h3 span {
     cursor: not-allowed;
 }
 
-#chain-display {
+#chains-container {
     display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 4px;
+    flex-direction: column;
+    gap: 12px;
     min-height: 50px;
 }
 
-#chain-display .empty-message {
+#chains-container .empty-message {
     color: rgba(255, 255, 255, 0.4);
     font-size: 0.8rem;
     font-style: italic;
 }
 
-/* Chain Row for wrapping */
+.chain-container {
+    background: rgba(0, 0, 0, 0.2);
+    border: 2px solid rgba(246, 195, 67, 0.3);
+    border-radius: 8px;
+    padding: 8px;
+    cursor: grab;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.chain-container:hover {
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+}
+
+.chain-container.selected {
+    border-color: var(--selected-highlight);
+    box-shadow: 0 0 0 3px var(--selected-highlight);
+}
+
+.chain-container.can-join {
+    border-color: var(--success-color);
+    box-shadow: 0 0 8px rgba(76, 175, 80, 0.4);
+    animation: pulse-join 0.6s ease-in-out infinite;
+}
+
+.chain-container.circular {
+    border-color: var(--success-color);
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+}
+
+@keyframes pulse-join {
+    0%, 100% { box-shadow: 0 0 8px rgba(76, 175, 80, 0.4); }
+    50% { box-shadow: 0 0 16px rgba(76, 175, 80, 0.6); }
+}
+
+.chain-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.chain-label {
+    font-weight: bold;
+    font-size: 0.75rem;
+    color: var(--accent-color);
+}
+
+.chain-ends {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-family: monospace;
+}
+
+.chain-display {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 .chain-row {
     display: flex;
     align-items: center;
-    flex-wrap: nowrap;
-    gap: 2px;
-    width: 100%;
+    flex-wrap: wrap;
+    gap: 4px;
 }
 
 .chain-segment {
@@ -317,10 +356,6 @@ section h3 span {
     font-size: 0.9rem;
     white-space: nowrap;
     transition: transform 0.15s, box-shadow 0.15s;
-}
-
-.chain-domino:hover {
-    transform: scale(1.05);
 }
 
 .chain-domino.circular {
@@ -359,7 +394,6 @@ section h3 span {
     color: var(--success-color);
 }
 
-/* Wrap arrow indicator - the key feature for long chains */
 .chain-wrap-indicator {
     width: 100%;
     display: flex;
@@ -427,7 +461,6 @@ section h3 span {
     50% { opacity: 1; }
 }
 
-/* Workyard Drag Area */
 #workyard-drag-area {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -436,7 +469,6 @@ section h3 span {
     z-index: 1;
 }
 
-/* Pairs Section */
 #pairs-section {
     min-height: 80px;
 }
@@ -460,11 +492,6 @@ section h3 span {
     cursor: pointer;
 }
 
-.pair-slot.highlight {
-    border-color: var(--accent-color);
-    background: var(--drop-highlight);
-}
-
 .pair-slot.filled {
     border-style: solid;
     border-color: rgba(255, 255, 255, 0.4);
@@ -475,11 +502,6 @@ section h3 span {
 .pair-slot.filled:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.pair-slot.dragging {
-    opacity: 0.6;
-    cursor: grabbing;
 }
 
 .pair-slot.drag-over {
@@ -503,7 +525,6 @@ section h3 span {
     50% { box-shadow: 0 0 0 6px rgba(76, 175, 80, 0); }
 }
 
-/* Dominos Section */
 #dominos-section {
     min-height: 80px;
 }
@@ -516,10 +537,6 @@ section h3 span {
     padding: 4px;
     border-radius: 6px;
     transition: background 0.2s;
-}
-
-#dominos-container.drag-over {
-    background: rgba(255, 215, 0, 0.1);
 }
 
 .domino {
@@ -541,10 +558,6 @@ section h3 span {
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
 }
 
-.domino.selected {
-    box-shadow: 0 0 0 3px var(--selected-highlight);
-}
-
 .domino.in-chain {
     opacity: 0.4;
     cursor: not-allowed;
@@ -560,19 +573,6 @@ section h3 span {
 @keyframes pulse-connect {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.03); }
-}
-
-.domino.dragging {
-    opacity: 0.9;
-    cursor: grabbing;
-    z-index: 1000;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    transform: rotate(2deg) scale(1.05);
-}
-
-.domino.drag-placeholder {
-    opacity: 0.3;
-    border-style: dashed;
 }
 
 .domino-pair {
@@ -597,7 +597,14 @@ section h3 span {
     letter-spacing: -0.3px;
 }
 
-/* Tableau */
+.domino-sub {
+    font-size: 0.55rem;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.45);
+    margin-top: 1px;
+    letter-spacing: 0.4px;
+}
+
 #tableau {
     background: rgba(0, 0, 0, 0.28);
     border-radius: 8px;
@@ -656,7 +663,6 @@ section h3 span {
     border-radius: 50%;
 }
 
-/* Cards */
 .card {
     width: var(--card-width);
     height: var(--card-height);
@@ -699,17 +705,6 @@ section h3 span {
     transform: translateY(-3px);
 }
 
-.card.dragging {
-    opacity: 0.9;
-    cursor: grabbing;
-    z-index: 1000;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-}
-
-.card.invalid {
-    opacity: 0.5;
-}
-
 .card-corner {
     display: flex;
     flex-direction: column;
@@ -739,7 +734,6 @@ section h3 span {
     font-size: 1.6rem;
 }
 
-/* Mini cards for pairs/dominos */
 .card.mini {
     width: 32px;
     height: 44px;
@@ -763,7 +757,6 @@ section h3 span {
     display: none;
 }
 
-/* Modals */
 .modal {
     position: fixed;
     top: 0;
@@ -776,10 +769,6 @@ section h3 span {
     justify-content: center;
     z-index: 2000;
     padding: 16px;
-}
-
-.modal.hidden {
-    display: none;
 }
 
 .modal-content {
@@ -829,7 +818,6 @@ section h3 span {
     line-height: 1.4;
 }
 
-/* Win Modal */
 .win-content {
     text-align: center;
 }
@@ -882,9 +870,26 @@ section h3 span {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-/* Responsive Design */
+.chain-circular-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: linear-gradient(135deg, var(--success-color), #2e7d32);
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: white;
+    margin-left: 8px;
+    animation: badge-pop 0.3s ease-out;
+}
 
-/* Large tablets and smaller desktops */
+@keyframes badge-pop {
+    0% { transform: scale(0); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
 @media (max-width: 1100px) {
     :root {
         --card-width: 52px;
@@ -893,7 +898,6 @@ section h3 span {
     }
 }
 
-/* Tablets */
 @media (max-width: 900px) {
     :root {
         --card-width: 48px;
@@ -916,7 +920,6 @@ section h3 span {
     }
 }
 
-/* Mobile landscape / small tablets */
 @media (max-width: 768px) {
     :root {
         --card-width: 44px;
@@ -1006,7 +1009,6 @@ section h3 span {
     }
 }
 
-/* Mobile portrait */
 @media (max-width: 540px) {
     :root {
         --card-width: 38px;
@@ -1120,7 +1122,6 @@ section h3 span {
     }
 }
 
-/* Very small phones */
 @media (max-width: 380px) {
     :root {
         --card-width: 34px;
@@ -1154,7 +1155,6 @@ section h3 span {
     }
 }
 
-/* Touch-specific styles */
 @media (hover: none) {
     .card:hover {
         transform: none;
@@ -1179,72 +1179,4 @@ section h3 span {
         transform: none;
         box-shadow: none;
     }
-
-    .chain-domino:hover {
-        transform: none;
-    }
-}
-
-/* Animation for valid moves */
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
-}
-
-.column.valid-drop {
-    animation: pulse 0.6s ease-in-out infinite;
-}
-
-/* Smooth transitions */
-.card, .domino, .pair-slot {
-    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
-}
-
-/* Drag ghost element */
-.drag-ghost {
-    position: fixed;
-    pointer-events: none;
-    z-index: 10000;
-    opacity: 0.9;
-    transform: rotate(3deg);
-}
-
-/* Circular chain celebration */
-.chain-circular-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    background: linear-gradient(135deg, var(--success-color), #2e7d32);
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: bold;
-    color: white;
-    margin-left: 8px;
-    animation: badge-pop 0.3s ease-out;
-}
-
-@keyframes badge-pop {
-    0% { transform: scale(0); }
-    50% { transform: scale(1.2); }
-    100% { transform: scale(1); }
-}
-
-/* Highlight connectable dominos */
-.domino.highlight-connect {
-    position: relative;
-}
-
-.domino.highlight-connect::after {
-    content: 'Can connect!';
-    position: absolute;
-    top: -20px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 0.6rem;
-    color: var(--success-color);
-    white-space: nowrap;
-    background: rgba(0, 0, 0, 0.7);
-    padding: 2px 6px;
-    border-radius: 4px;
 }

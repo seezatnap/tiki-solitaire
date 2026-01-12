@@ -14,6 +14,11 @@ class TikiSolitaire {
         this.selectedCard = null;
         this.selectedDomino = null;
         this.history = []; // for undo
+        this.moveCount = 0;
+
+        // Drag state for workyard
+        this.draggedDomino = null;
+        this.draggedDominoIndex = null;
 
         this.init();
     }
@@ -21,6 +26,7 @@ class TikiSolitaire {
     init() {
         this.bindEvents();
         this.newGame();
+        requestAnimationFrame(() => document.body.classList.add('loaded'));
     }
 
     createDeck() {
@@ -57,6 +63,7 @@ class TikiSolitaire {
         this.selectedCard = null;
         this.selectedDomino = null;
         this.history = [];
+        this.moveCount = 0;
 
         // Deal cards to 8 columns (6-7 cards each)
         let cardIndex = 0;
@@ -73,7 +80,8 @@ class TikiSolitaire {
             tableau: JSON.parse(JSON.stringify(this.tableau)),
             pairs: JSON.parse(JSON.stringify(this.pairs)),
             dominos: JSON.parse(JSON.stringify(this.dominos)),
-            chain: JSON.parse(JSON.stringify(this.chain))
+            chain: JSON.parse(JSON.stringify(this.chain)),
+            moveCount: this.moveCount
         });
         // Limit history size
         if (this.history.length > 50) {
@@ -89,6 +97,7 @@ class TikiSolitaire {
         this.pairs = state.pairs;
         this.dominos = state.dominos;
         this.chain = state.chain;
+        this.moveCount = state.moveCount;
         this.selectedCard = null;
         this.selectedDomino = null;
         this.render();
@@ -121,6 +130,7 @@ class TikiSolitaire {
         if (toColumn.length === 0) {
             this.saveState();
             toColumn.push(fromColumn.pop());
+            this.moveCount++;
             return true;
         }
 
@@ -129,6 +139,7 @@ class TikiSolitaire {
         if (this.canStack(card, targetCard)) {
             this.saveState();
             toColumn.push(fromColumn.pop());
+            this.moveCount++;
             return true;
         }
 
@@ -153,6 +164,7 @@ class TikiSolitaire {
         // Add to pairs (red card first for consistency)
         const pair = card1.isRed ? [card1, card2] : [card2, card1];
         this.pairs.push(pair);
+        this.moveCount++;
 
         return true;
     }
@@ -171,18 +183,17 @@ class TikiSolitaire {
         }
     }
 
-    // Check if two pairs can form a domino (must have all 4 suits for same values)
+    // Check if two pairs can form a domino (must have all 4 suits between them)
+    // The pairs do NOT need to have the same values - any 4-suited combination is valid
     canFormDomino(pair1, pair2) {
-        // Get the values
-        const value1 = pair1[0].value;
-        const value2 = 14 - value1; // The complementary value
-
-        // Check if pair2 has the same values
-        if (pair2[0].value !== value1) return false;
-
-        // Check if together they have all 4 suits for each value
-        const suits1 = new Set([pair1[0].suit, pair1[1].suit, pair2[0].suit, pair2[1].suit]);
-        return suits1.size === 4;
+        // Check if together they have all 4 suits
+        const allSuits = new Set([
+            pair1[0].suit,
+            pair1[1].suit,
+            pair2[0].suit,
+            pair2[1].suit
+        ]);
+        return allSuits.size === 4;
     }
 
     // Create a domino from two pairs
@@ -196,18 +207,25 @@ class TikiSolitaire {
 
         this.saveState();
 
-        // Create domino with all 4 cards organized by value
-        const value1 = pair1[0].value;
-        const value2 = 14 - value1;
+        // Create domino with all 4 cards
+        // Each pair contributes one "end" of the domino
+        // pair1 = [redCard, blackCard] where redCard.value + blackCard.value = 14
+        // The domino's end values are the VALUES of each pair (the sum-to-14 pair)
+        // For chain purposes, we use the red card's value as the "end value" of each pair
+        const endValue1 = pair1[0].value; // Red card value from pair1
+        const endValue2 = pair2[0].value; // Red card value from pair2
 
         const domino = {
-            value1,
-            value2,
+            value1: endValue1,
+            value2: endValue2,
+            pair1: pair1,
+            pair2: pair2,
             cards: [...pair1, ...pair2],
-            id: `domino_${Date.now()}`
+            id: `domino_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         };
 
         this.dominos.push(domino);
+        this.moveCount++;
 
         // Remove pairs (remove higher index first)
         const indices = [pairIndex1, pairIndex2].sort((a, b) => b - a);
@@ -234,45 +252,109 @@ class TikiSolitaire {
         return null;
     }
 
+    // Get chain end values
+    getChainEndValues() {
+        if (this.chain.length === 0) return null;
+
+        const first = this.chain[0];
+        const last = this.chain[this.chain.length - 1];
+
+        return {
+            start: first.displayValue1 || first.value1,
+            end: last.displayValue2 || last.value2
+        };
+    }
+
+    // Check if a domino can connect to the current chain
+    canConnectToChain(domino) {
+        if (this.chain.length === 0) return true;
+
+        const ends = this.getChainEndValues();
+        return domino.value1 === ends.end || domino.value2 === ends.end;
+    }
+
     // Add domino to chain
     addToChain(dominoIndex) {
         const domino = this.dominos[dominoIndex];
+        if (domino.inChain) return false;
 
         if (this.chain.length === 0) {
             this.saveState();
-            this.chain.push({ ...domino, originalIndex: dominoIndex });
+            this.chain.push({
+                ...domino,
+                originalIndex: dominoIndex,
+                displayValue1: domino.value1,
+                displayValue2: domino.value2
+            });
             domino.inChain = true;
+            this.moveCount++;
             return true;
         }
 
         // Check if can connect to end of chain
         const lastInChain = this.chain[this.chain.length - 1];
+        const lastEndValue = lastInChain.displayValue2 || lastInChain.value2;
 
-        if (this.canConnect(lastInChain, domino)) {
+        if (domino.value1 === lastEndValue || domino.value2 === lastEndValue) {
             this.saveState();
 
-            // Determine orientation
-            const connectValue = this.getConnectingValue(lastInChain, domino);
-            let orientedDomino = { ...domino, originalIndex: dominoIndex };
+            let orientedDomino = {
+                ...domino,
+                originalIndex: dominoIndex
+            };
 
             // Orient so connecting value is at start
-            if (domino.value2 === connectValue) {
-                // Swap values for display
-                orientedDomino.displayValue1 = domino.value2;
-                orientedDomino.displayValue2 = domino.value1;
-            } else {
+            if (domino.value1 === lastEndValue) {
                 orientedDomino.displayValue1 = domino.value1;
                 orientedDomino.displayValue2 = domino.value2;
+            } else {
+                orientedDomino.displayValue1 = domino.value2;
+                orientedDomino.displayValue2 = domino.value1;
             }
 
             this.chain.push(orientedDomino);
             domino.inChain = true;
+            this.moveCount++;
 
             this.checkCircular();
             return true;
         }
 
         return false;
+    }
+
+    // Remove last domino from chain
+    removeLastFromChain() {
+        if (this.chain.length === 0) return false;
+
+        this.saveState();
+        const removed = this.chain.pop();
+
+        // Find the original domino and mark it as not in chain
+        const originalDomino = this.dominos.find(d => d.id === removed.id);
+        if (originalDomino) {
+            originalDomino.inChain = false;
+        }
+
+        return true;
+    }
+
+    // Clear entire chain
+    clearChain() {
+        if (this.chain.length === 0) return false;
+
+        this.saveState();
+
+        // Mark all dominos as not in chain
+        for (const chainDomino of this.chain) {
+            const originalDomino = this.dominos.find(d => d.id === chainDomino.id);
+            if (originalDomino) {
+                originalDomino.inChain = false;
+            }
+        }
+
+        this.chain = [];
+        return true;
     }
 
     // Check if chain is circular
@@ -295,6 +377,17 @@ class TikiSolitaire {
         return totalCardsInChain === 52 && this.checkCircular();
     }
 
+    // Reorder dominos in workyard
+    reorderDominos(fromIndex, toIndex) {
+        if (fromIndex === toIndex) return;
+        if (fromIndex < 0 || fromIndex >= this.dominos.length) return;
+        if (toIndex < 0 || toIndex >= this.dominos.length) return;
+
+        const domino = this.dominos.splice(fromIndex, 1)[0];
+        this.dominos.splice(toIndex, 0, domino);
+        this.render();
+    }
+
     // Render the game
     render() {
         this.renderTableau();
@@ -302,6 +395,7 @@ class TikiSolitaire {
         this.renderDominos();
         this.renderChain();
         this.updateCounts();
+        this.highlightConnectableDominos();
     }
 
     renderTableau() {
@@ -361,10 +455,12 @@ class TikiSolitaire {
 
         slots.forEach((slot, index) => {
             slot.innerHTML = '';
-            slot.classList.remove('filled');
+            slot.classList.remove('filled', 'can-combine');
+            slot.classList.remove('dragging', 'drag-over');
 
             if (this.pairs[index]) {
                 slot.classList.add('filled');
+                slot.draggable = true;
                 const pair = this.pairs[index];
 
                 pair.forEach(card => {
@@ -372,10 +468,18 @@ class TikiSolitaire {
                     cardEl.dataset.pairIndex = index;
                     slot.appendChild(cardEl);
                 });
+
+                // Check if this pair can combine with any other pair
+                for (let i = 0; i < this.pairs.length; i++) {
+                    if (i !== index && this.pairs[i] && this.canFormDomino(pair, this.pairs[i])) {
+                        slot.classList.add('can-combine');
+                        break;
+                    }
+                }
+            } else {
+                slot.draggable = false;
             }
         });
-
-        document.getElementById('pairs-count').textContent = `(${this.pairs.length}/6)`;
     }
 
     renderDominos() {
@@ -383,28 +487,53 @@ class TikiSolitaire {
         container.innerHTML = '';
 
         this.dominos.forEach((domino, index) => {
-            if (domino.inChain) return;
-
             const dominoEl = document.createElement('div');
             dominoEl.className = 'domino';
             dominoEl.dataset.index = index;
+            dominoEl.dataset.id = domino.id;
+            dominoEl.draggable = true;
 
-            // Group cards by value
-            const value1Cards = domino.cards.filter(c => c.value === domino.value1);
-            const value2Cards = domino.cards.filter(c => c.value === domino.value2);
+            if (domino.inChain) {
+                dominoEl.classList.add('in-chain');
+            }
+
+            // Display the two pairs that form this domino
+            // pair1 and pair2 each contain [redCard, blackCard]
+            const pair1 = domino.pair1 || domino.cards.slice(0, 2);
+            const pair2 = domino.pair2 || domino.cards.slice(2, 4);
+
+            // Get the label showing both end values
+            const label1 = this.valueToRank(domino.value1);
+            const label2 = this.valueToRank(domino.value2);
+            // Also show the complementary values for clarity
+            const comp1 = this.valueToRank(14 - domino.value1);
+            const comp2 = this.valueToRank(14 - domino.value2);
 
             dominoEl.innerHTML = `
-                <div class="domino-pair">
-                    ${value1Cards.map(c => this.createCardElement(c, true).outerHTML).join('')}
+                <div class="domino-pair" title="${label1}+${comp1}">
+                    ${pair1.map(c => this.createCardElement(c, true).outerHTML).join('')}
                 </div>
                 <div class="domino-divider"></div>
-                <div class="domino-pair">
-                    ${value2Cards.map(c => this.createCardElement(c, true).outerHTML).join('')}
+                <div class="domino-pair" title="${label2}+${comp2}">
+                    ${pair2.map(c => this.createCardElement(c, true).outerHTML).join('')}
                 </div>
-                <div class="domino-label">${this.valueToRank(domino.value1)}${this.valueToRank(domino.value2)}</div>
+                <div class="domino-label">${label1}${comp1} | ${label2}${comp2}</div>
             `;
 
             container.appendChild(dominoEl);
+        });
+    }
+
+    highlightConnectableDominos() {
+        const dominos = document.querySelectorAll('#dominos-container .domino');
+
+        dominos.forEach((dominoEl, index) => {
+            dominoEl.classList.remove('can-connect');
+
+            const domino = this.dominos[index];
+            if (!domino.inChain && this.canConnectToChain(domino)) {
+                dominoEl.classList.add('can-connect');
+            }
         });
     }
 
@@ -417,19 +546,41 @@ class TikiSolitaire {
         container.innerHTML = '';
 
         if (this.chain.length === 0) {
-            container.innerHTML = '<span style="color: rgba(255,255,255,0.5); font-size: 0.85rem;">Click dominos to build your chain...</span>';
+            container.innerHTML = '<span class="empty-message">Click dominos to build your chain...</span>';
+            document.getElementById('remove-last-btn').disabled = true;
             return;
         }
 
+        document.getElementById('remove-last-btn').disabled = false;
+
         const isCircular = this.checkCircular();
-        const maxPerRow = window.innerWidth < 768 ? 3 : 6;
+
+        // Calculate how many dominos fit per row based on container width
+        const containerWidth = container.offsetWidth || 400;
+        const dominoWidth = 80; // Approximate width of a chain domino with connector
+        const maxPerRow = Math.max(2, Math.floor(containerWidth / dominoWidth));
+
+        // Create rows
+        let currentRow = document.createElement('div');
+        currentRow.className = 'chain-row';
 
         this.chain.forEach((domino, index) => {
-            // Add wrap arrow if needed
+            // Check if we need to wrap to new row
             if (index > 0 && index % maxPerRow === 0) {
-                const wrapArrow = document.createElement('div');
-                wrapArrow.className = 'chain-wrap-arrow';
-                container.appendChild(wrapArrow);
+                container.appendChild(currentRow);
+
+                // Add wrap indicator
+                const wrapIndicator = document.createElement('div');
+                wrapIndicator.className = 'chain-wrap-indicator';
+                wrapIndicator.innerHTML = `
+                    <div class="wrap-line"></div>
+                    <div class="wrap-arrow">Display break - chain continues</div>
+                    <div class="wrap-line right"></div>
+                `;
+                container.appendChild(wrapIndicator);
+
+                currentRow = document.createElement('div');
+                currentRow.className = 'chain-row';
             }
 
             const segment = document.createElement('div');
@@ -439,33 +590,60 @@ class TikiSolitaire {
             const val2 = domino.displayValue2 || domino.value2;
 
             const dominoEl = document.createElement('div');
-            dominoEl.className = `chain-domino${isCircular && index === 0 ? ' circular' : ''}`;
+            dominoEl.className = 'chain-domino';
+
+            if (isCircular) {
+                dominoEl.classList.add('circular');
+            }
+            if (index === 0) {
+                dominoEl.classList.add('chain-start');
+            }
+            if (index === this.chain.length - 1) {
+                dominoEl.classList.add('chain-end');
+            }
+
+            // Show both the value and its complement for each end
+            const comp1 = 14 - val1;
+            const comp2 = 14 - val2;
             dominoEl.innerHTML = `
-                <span>${this.valueToRank(val1)}</span>
-                <span style="margin: 0 4px;">-</span>
-                <span>${this.valueToRank(val2)}</span>
+                <span class="chain-val">${this.valueToRank(val1)}${this.valueToRank(comp1)}</span>
+                <span class="chain-sep">|</span>
+                <span class="chain-val">${this.valueToRank(val2)}${this.valueToRank(comp2)}</span>
             `;
 
             segment.appendChild(dominoEl);
 
-            // Add connector if not last
-            if (index < this.chain.length - 1) {
+            // Add connector if not last in row and not last overall
+            const isLastInRow = (index + 1) % maxPerRow === 0;
+            const isLastOverall = index === this.chain.length - 1;
+
+            if (!isLastOverall && !isLastInRow) {
                 const connector = document.createElement('span');
                 connector.className = 'chain-connector';
                 connector.textContent = '―';
-                segment.appendChild(connector);
-            } else if (isCircular) {
-                const connector = document.createElement('span');
-                connector.className = 'chain-connector';
-                connector.textContent = '↺';
-                connector.style.color = '#4caf50';
+                if (isCircular) {
+                    connector.classList.add('circular');
+                }
                 segment.appendChild(connector);
             }
 
-            container.appendChild(segment);
+            currentRow.appendChild(segment);
         });
 
-        document.getElementById('chain-length').textContent = `(${this.chain.length} dominos${isCircular ? ' - CIRCULAR!' : ''})`;
+        // Add the last row
+        container.appendChild(currentRow);
+
+        // Add circular indicator if applicable
+        if (isCircular) {
+            const circularBadge = document.createElement('span');
+            circularBadge.className = 'chain-circular-badge';
+            circularBadge.textContent = 'CIRCULAR!';
+            container.appendChild(circularBadge);
+        }
+
+        // Update chain length display
+        const lengthDisplay = document.getElementById('chain-length');
+        lengthDisplay.innerHTML = `(${this.chain.length} dominos${isCircular ? ' <span style="color: #4caf50;">CIRCULAR!</span>' : ''})`;
 
         if (this.checkWin()) {
             this.showWin();
@@ -477,12 +655,21 @@ class TikiSolitaire {
         const cardsInPairs = this.pairs.length * 2;
         const cardsInDominos = this.dominos.filter(d => !d.inChain).length * 4;
         const cardsInChain = this.chain.length * 4;
+
+        document.getElementById('pairs-count').textContent = `Pairs: ${this.pairs.length}/6`;
+        document.getElementById('dominos-count').textContent = `Dominos: ${this.dominos.length}`;
+        document.getElementById('chain-status').textContent = `Chain: ${this.chain.length}`;
+        document.getElementById('tableau-cards').textContent = `(${cardsInTableau} cards)`;
     }
 
     showWin() {
         const modal = document.getElementById('win-modal');
         const message = document.getElementById('win-message');
-        message.textContent = `You created a perfect circular chain with all 52 cards in ${this.chain.length} dominos!`;
+        message.textContent = `You created a perfect circular chain with all 52 cards!`;
+
+        document.getElementById('win-dominos').textContent = this.chain.length;
+        document.getElementById('win-moves').textContent = this.moveCount;
+
         modal.classList.remove('hidden');
     }
 
@@ -492,6 +679,20 @@ class TikiSolitaire {
 
         // Undo
         document.getElementById('undo-btn').addEventListener('click', () => this.undo());
+
+        // Clear chain
+        document.getElementById('clear-chain-btn').addEventListener('click', () => {
+            if (this.clearChain()) {
+                this.render();
+            }
+        });
+
+        // Remove last from chain
+        document.getElementById('remove-last-btn').addEventListener('click', () => {
+            if (this.removeLastFromChain()) {
+                this.render();
+            }
+        });
 
         // Help modal
         document.getElementById('help-btn').addEventListener('click', () => {
@@ -520,6 +721,19 @@ class TikiSolitaire {
 
         // Card interactions
         this.setupCardInteractions();
+
+        // Domino drag in workyard
+        this.setupDominoDrag();
+        this.setupPairDrag();
+
+        // Handle window resize for chain re-render
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                this.renderChain();
+            }, 100);
+        });
     }
 
     setupCardInteractions() {
@@ -536,7 +750,7 @@ class TikiSolitaire {
             const domino = e.target.closest('.domino');
 
             // Handle domino click - add to chain
-            if (domino && !domino.closest('#chain-display')) {
+            if (domino && !domino.closest('#chain-display') && !domino.classList.contains('in-chain')) {
                 const index = parseInt(domino.dataset.index);
                 if (this.addToChain(index)) {
                     this.render();
@@ -653,8 +867,8 @@ class TikiSolitaire {
             }
         });
 
-        // Touch/drag support
-        this.setupDragAndDrop();
+        // Touch/drag support for cards
+        this.setupCardDragAndDrop();
     }
 
     highlightValidMoves(fromCol) {
@@ -673,8 +887,7 @@ class TikiSolitaire {
                     col.classList.add('highlight');
                 }
                 if (this.canPair(card, targetCard)) {
-                    col.classList.add('highlight');
-                    col.style.borderColor = '#4caf50';
+                    col.classList.add('pair-highlight');
                 }
             }
         });
@@ -682,12 +895,270 @@ class TikiSolitaire {
 
     clearHighlights() {
         document.querySelectorAll('.column').forEach(col => {
-            col.classList.remove('highlight');
-            col.style.borderColor = '';
+            col.classList.remove('highlight', 'pair-highlight');
         });
     }
 
-    setupDragAndDrop() {
+    setupDominoDrag() {
+        const container = document.getElementById('dominos-container');
+        let draggedEl = null;
+        let draggedIndex = null;
+        let placeholder = null;
+        let touchOffset = { x: 0, y: 0 };
+
+        // Mouse drag events
+        container.addEventListener('dragstart', (e) => {
+            const domino = e.target.closest('.domino');
+            if (!domino || domino.classList.contains('in-chain')) {
+                e.preventDefault();
+                return;
+            }
+
+            draggedEl = domino;
+            draggedIndex = parseInt(domino.dataset.index);
+            domino.classList.add('dragging');
+
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', draggedIndex);
+        });
+
+        container.addEventListener('dragend', (e) => {
+            if (draggedEl) {
+                draggedEl.classList.remove('dragging');
+                draggedEl = null;
+                draggedIndex = null;
+            }
+            if (placeholder) {
+                placeholder.remove();
+                placeholder = null;
+            }
+            container.classList.remove('drag-over');
+        });
+
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            container.classList.add('drag-over');
+
+            const afterElement = this.getDragAfterElement(container, e.clientX);
+            if (draggedEl) {
+                if (afterElement == null) {
+                    container.appendChild(draggedEl);
+                } else {
+                    container.insertBefore(draggedEl, afterElement);
+                }
+            }
+        });
+
+        container.addEventListener('dragleave', () => {
+            container.classList.remove('drag-over');
+        });
+
+        container.addEventListener('drop', (e) => {
+            e.preventDefault();
+            container.classList.remove('drag-over');
+
+            if (draggedEl && draggedIndex !== null) {
+                const newIndex = Array.from(container.children).indexOf(draggedEl);
+                if (newIndex !== draggedIndex && newIndex !== -1) {
+                    // Update the dominos array order
+                    const [moved] = this.dominos.splice(draggedIndex, 1);
+                    this.dominos.splice(newIndex, 0, moved);
+                    this.render();
+                }
+            }
+        });
+
+        // Touch drag for mobile
+        container.addEventListener('touchstart', (e) => {
+            const domino = e.target.closest('.domino');
+            if (!domino || domino.classList.contains('in-chain')) return;
+
+            draggedEl = domino;
+            draggedIndex = parseInt(domino.dataset.index);
+
+            const touch = e.touches[0];
+            const rect = domino.getBoundingClientRect();
+            touchOffset.x = touch.clientX - rect.left;
+            touchOffset.y = touch.clientY - rect.top;
+
+            // Create placeholder
+            placeholder = domino.cloneNode(true);
+            placeholder.classList.add('drag-placeholder');
+            domino.parentNode.insertBefore(placeholder, domino.nextSibling);
+
+            domino.classList.add('dragging');
+            domino.style.position = 'fixed';
+            domino.style.left = `${touch.clientX - touchOffset.x}px`;
+            domino.style.top = `${touch.clientY - touchOffset.y}px`;
+            domino.style.width = `${rect.width}px`;
+        }, { passive: true });
+
+        container.addEventListener('touchmove', (e) => {
+            if (!draggedEl) return;
+
+            const touch = e.touches[0];
+            draggedEl.style.left = `${touch.clientX - touchOffset.x}px`;
+            draggedEl.style.top = `${touch.clientY - touchOffset.y}px`;
+
+            // Find insertion point
+            const afterElement = this.getDragAfterElement(container, touch.clientX);
+            if (placeholder) {
+                if (afterElement == null) {
+                    container.appendChild(placeholder);
+                } else if (afterElement !== draggedEl) {
+                    container.insertBefore(placeholder, afterElement);
+                }
+            }
+        }, { passive: true });
+
+        container.addEventListener('touchend', (e) => {
+            if (!draggedEl) return;
+
+            draggedEl.classList.remove('dragging');
+            draggedEl.style.position = '';
+            draggedEl.style.left = '';
+            draggedEl.style.top = '';
+            draggedEl.style.width = '';
+
+            if (placeholder) {
+                const newIndex = Array.from(container.children).filter(el => !el.classList.contains('dragging')).indexOf(placeholder);
+                placeholder.remove();
+                placeholder = null;
+
+                if (newIndex !== draggedIndex && newIndex !== -1) {
+                    const [moved] = this.dominos.splice(draggedIndex, 1);
+                    this.dominos.splice(newIndex, 0, moved);
+                    this.render();
+                }
+            }
+
+            draggedEl = null;
+            draggedIndex = null;
+        });
+    }
+
+    setupPairDrag() {
+        const container = document.getElementById('pairs-container');
+        let draggedIndex = null;
+
+        const clearHighlights = () => {
+            container.querySelectorAll('.pair-slot').forEach(slot => {
+                slot.classList.remove('drag-over', 'dragging');
+            });
+        };
+
+        container.addEventListener('dragstart', (e) => {
+            const slot = e.target.closest('.pair-slot.filled');
+            if (!slot) {
+                e.preventDefault();
+                return;
+            }
+
+            draggedIndex = parseInt(slot.dataset.slot);
+            slot.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', draggedIndex);
+        });
+
+        container.addEventListener('dragover', (e) => {
+            const slot = e.target.closest('.pair-slot.filled');
+            if (!slot || draggedIndex === null) return;
+
+            e.preventDefault();
+            slot.classList.add('drag-over');
+        });
+
+        container.addEventListener('dragleave', (e) => {
+            const slot = e.target.closest('.pair-slot');
+            if (slot) {
+                slot.classList.remove('drag-over');
+            }
+        });
+
+        container.addEventListener('drop', (e) => {
+            const slot = e.target.closest('.pair-slot.filled');
+            if (!slot || draggedIndex === null) return;
+
+            e.preventDefault();
+            const targetIndex = parseInt(slot.dataset.slot);
+
+            if (targetIndex !== draggedIndex) {
+                const temp = this.pairs[draggedIndex];
+                this.pairs[draggedIndex] = this.pairs[targetIndex];
+                this.pairs[targetIndex] = temp;
+            }
+
+            draggedIndex = null;
+            clearHighlights();
+            this.render();
+        });
+
+        container.addEventListener('dragend', () => {
+            draggedIndex = null;
+            clearHighlights();
+        });
+
+        // Touch drag for mobile
+        container.addEventListener('touchstart', (e) => {
+            const slot = e.target.closest('.pair-slot.filled');
+            if (!slot) return;
+
+            draggedIndex = parseInt(slot.dataset.slot);
+            slot.classList.add('dragging');
+        }, { passive: true });
+
+        container.addEventListener('touchmove', (e) => {
+            if (draggedIndex === null) return;
+
+            const touch = e.touches[0];
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            const slot = target?.closest('.pair-slot.filled');
+
+            container.querySelectorAll('.pair-slot').forEach(el => el.classList.remove('drag-over'));
+            if (slot) {
+                slot.classList.add('drag-over');
+            }
+        }, { passive: true });
+
+        container.addEventListener('touchend', (e) => {
+            if (draggedIndex === null) return;
+
+            const touch = e.changedTouches[0];
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            const slot = target?.closest('.pair-slot.filled');
+
+            if (slot) {
+                const targetIndex = parseInt(slot.dataset.slot);
+                if (targetIndex !== draggedIndex) {
+                    const temp = this.pairs[draggedIndex];
+                    this.pairs[draggedIndex] = this.pairs[targetIndex];
+                    this.pairs[targetIndex] = temp;
+                }
+            }
+
+            draggedIndex = null;
+            clearHighlights();
+            this.render();
+        });
+    }
+
+    getDragAfterElement(container, x) {
+        const draggableElements = [...container.querySelectorAll('.domino:not(.dragging):not(.drag-placeholder)')];
+
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = x - box.left - box.width / 2;
+
+            if (offset < 0 && offset > closest.offset) {
+                return { offset: offset, element: child };
+            } else {
+                return closest;
+            }
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+
+    setupCardDragAndDrop() {
         let draggedElement = null;
         let draggedData = null;
         let touchOffset = { x: 0, y: 0 };
@@ -697,20 +1168,20 @@ class TikiSolitaire {
         // Mouse drag
         gameContainer.addEventListener('mousedown', (e) => {
             const card = e.target.closest('.card.top-card');
-            if (card) {
-                this.startDrag(e, card);
+            if (card && !card.closest('#workyard')) {
+                this.startCardDrag(e, card);
             }
         });
 
         // Touch drag
         gameContainer.addEventListener('touchstart', (e) => {
             const card = e.target.closest('.card.top-card');
-            if (card) {
-                this.startDrag(e, card);
+            if (card && !card.closest('#workyard')) {
+                this.startCardDrag(e, card);
             }
         }, { passive: false });
 
-        this.startDrag = (e, card) => {
+        this.startCardDrag = (e, card) => {
             e.preventDefault();
 
             const colIndex = parseInt(card.dataset.column);
