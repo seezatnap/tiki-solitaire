@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Tiki Solitaire</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="game-container">
+        <header>
+            <h1>Tiki Solitaire</h1>
+            <div class="controls">
+                <button id="new-game-btn">New Game</button>
+                <button id="undo-btn">Undo</button>
+                <button id="help-btn">?</button>
+            </div>
+        </header>
+
+        <main>
+            <!-- Chain Display Area -->
+            <section id="chain-area">
+                <h2>Chain <span id="chain-length">(0 dominos)</span></h2>
+                <div id="chain-display"></div>
+            </section>
+
+            <!-- Workyard Area -->
+            <section id="workyard">
+                <h2>Workyard</h2>
+                <div id="workyard-area">
+                    <!-- Pairs Section -->
+                    <div id="pairs-section">
+                        <h3>Pairs <span id="pairs-count">(0/6)</span></h3>
+                        <div id="pairs-container">
+                            <div class="pair-slot" data-slot="0"></div>
+                            <div class="pair-slot" data-slot="1"></div>
+                            <div class="pair-slot" data-slot="2"></div>
+                            <div class="pair-slot" data-slot="3"></div>
+                            <div class="pair-slot" data-slot="4"></div>
+                            <div class="pair-slot" data-slot="5"></div>
+                        </div>
+                    </div>
+                    <!-- Dominos Section -->
+                    <div id="dominos-section">
+                        <h3>Dominos</h3>
+                        <div id="dominos-container"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tableau Area -->
+            <section id="tableau">
+                <h2>Tableau</h2>
+                <div id="tableau-columns">
+                    <div class="column" data-column="0"></div>
+                    <div class="column" data-column="1"></div>
+                    <div class="column" data-column="2"></div>
+                    <div class="column" data-column="3"></div>
+                    <div class="column" data-column="4"></div>
+                    <div class="column" data-column="5"></div>
+                    <div class="column" data-column="6"></div>
+                    <div class="column" data-column="7"></div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Help Modal -->
+        <div id="help-modal" class="modal hidden">
+            <div class="modal-content">
+                <button class="close-modal">&times;</button>
+                <h2>How to Play Tiki Solitaire</h2>
+                <div class="rules">
+                    <h3>Moving Cards</h3>
+                    <ul>
+                        <li>Stack same rank on same rank (e.g., 9 on 9)</li>
+                        <li>Stack cards that sum to 14 (A=1, J=11, Q=12, K=13)</li>
+                        <li>Any card can go in an empty column</li>
+                    </ul>
+                    <h3>Making Pairs</h3>
+                    <ul>
+                        <li>Select two cards: one red, one black, summing to 14</li>
+                        <li>Example: A♥ + K♣, 6♦ + 8♠</li>
+                        <li>Hold up to 6 pairs</li>
+                    </ul>
+                    <h3>Building Dominos</h3>
+                    <ul>
+                        <li>Combine two pairs to form a four-suited bridge</li>
+                        <li>Example: A♥K♣ + A♦K♠ = AK domino</li>
+                    </ul>
+                    <h3>Making Chains</h3>
+                    <ul>
+                        <li>Connect dominos by matching values</li>
+                        <li>Example: AK77 connects to 772Q</li>
+                        <li>Goal: longest chain (circular if all cards used)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Win Modal -->
+        <div id="win-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2>Congratulations!</h2>
+                <p id="win-message"></p>
+                <button id="play-again-btn">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
