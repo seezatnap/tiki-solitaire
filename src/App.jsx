@@ -2,33 +2,48 @@ import { useEffect, useMemo, useReducer, useState } from 'react';
 import {
   MAX_PAIRS,
   addDominoToChain,
+  addDominoToChainEnd,
+  addDominoToChainStart,
   canConnectToChain,
+  canConnectToChainEnd,
+  canConnectToChainStart,
   canFormDomino,
   canJoinChains,
   canPair,
   canStack,
   checkCircular,
   checkWin,
-  clearChain,
+  clearSavedState,
   countTableauCards,
   createDominoFromPairs,
   createInitialState,
+  createNewChainWithDomino,
   createPairFromTableau,
   getChainEndValues,
   getTotalChainLength,
   joinChains,
+  loadState,
   moveCard,
-  removeLastFromChain,
   reorderChains,
   reorderDominos,
   reorderPairs,
+  saveState,
   undoState
 } from './gameLogic.js';
 import { useChainLayout } from './useChainLayout.js';
 
+const getInitialState = () => {
+  const savedState = loadState();
+  if (savedState) {
+    return savedState;
+  }
+  return createInitialState();
+};
+
 const reducer = (state, action) => {
   switch (action.type) {
     case 'NEW_GAME':
+      clearSavedState();
       return createInitialState();
     case 'UNDO':
       return undoState(state);
@@ -38,12 +53,14 @@ const reducer = (state, action) => {
       return createPairFromTableau(state, action.fromCol, action.toCol);
     case 'CREATE_DOMINO':
       return createDominoFromPairs(state, action.pairIndex1, action.pairIndex2);
+    case 'CREATE_NEW_CHAIN':
+      return createNewChainWithDomino(state, action.dominoIndex);
+    case 'ADD_TO_CHAIN_END':
+      return addDominoToChainEnd(state, action.dominoIndex, action.chainIndex);
+    case 'ADD_TO_CHAIN_START':
+      return addDominoToChainStart(state, action.dominoIndex, action.chainIndex);
     case 'ADD_CHAIN':
       return addDominoToChain(state, action.dominoIndex, action.chainIndex);
-    case 'REMOVE_LAST':
-      return removeLastFromChain(state, action.chainIndex);
-    case 'CLEAR_CHAIN':
-      return clearChain(state, action.chainIndex);
     case 'JOIN_CHAINS':
       return joinChains(state, action.chainIndex1, action.chainIndex2);
     case 'REORDER_CHAINS':
@@ -71,27 +88,68 @@ const chunk = (items, size) => {
   return rows;
 };
 
-const getDominoPairLabel = (pair) => {
-  const [first, second] = pair;
-  return `${first.rank}${second.rank}`;
-};
+// Component to render a mini card
+const MiniCard = ({ card }) => (
+  <div className={`card mini ${card.isRed ? 'red' : 'black'}`}>
+    <div className="card-corner">
+      <span className="card-rank">{card.rank}</span>
+      <span className="card-suit">{card.suit}</span>
+    </div>
+    <span className="card-center">{card.suit}</span>
+  </div>
+);
 
-const getDominoSubLabel = (pair) => {
-  const [first, second] = pair;
-  return `${first.suit}${second.suit}`;
+// Component to render a domino with full card display
+const DominoDisplay = ({ domino, isCircular, isStart, isEnd, compact }) => {
+  const pair1 = domino.pair1 || domino.cards?.slice(0, 2) || [];
+  const pair2 = domino.pair2 || domino.cards?.slice(2, 4) || [];
+
+  return (
+    <div
+      className={[
+        'domino-display',
+        isCircular ? 'circular' : '',
+        isStart ? 'chain-start' : '',
+        isEnd ? 'chain-end' : '',
+        compact ? 'compact' : ''
+      ].filter(Boolean).join(' ')}
+    >
+      <div className="domino-pair">
+        {pair1.map((card) => (
+          <MiniCard key={card.id} card={card} />
+        ))}
+      </div>
+      <div className="domino-divider-vertical"></div>
+      <div className="domino-pair">
+        {pair2.map((card) => (
+          <MiniCard key={card.id} card={card} />
+        ))}
+      </div>
+      <div className="domino-value-label">
+        {domino.displayValue1 || domino.value1} | {domino.displayValue2 || domino.value2}
+      </div>
+    </div>
+  );
 };
 
 export default function App() {
-  const [state, dispatch] = useReducer(reducer, null, () => createInitialState());
+  const [state, dispatch] = useReducer(reducer, null, getInitialState);
   const [selectedCard, setSelectedCard] = useState(null);
   const [selectedPairIndex, setSelectedPairIndex] = useState(null);
   const [selectedChainIndex, setSelectedChainIndex] = useState(null);
+  const [dragOverChain, setDragOverChain] = useState(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isWinOpen, setIsWinOpen] = useState(false);
   const { containerRef, maxPerRow } = useChainLayout();
 
   const totalChainLength = getTotalChainLength(state.chains);
   const totalTableauCards = countTableauCards(state.tableau);
+  const availableDominos = state.dominos.filter(d => !d.inChain).length;
+
+  // Save state to localStorage on every state change
+  useEffect(() => {
+    saveState(state);
+  }, [state]);
 
   useEffect(() => {
     if (checkWin(state.chains)) {
@@ -103,6 +161,7 @@ export default function App() {
     setSelectedCard(null);
     setSelectedPairIndex(null);
     setSelectedChainIndex(null);
+    setDragOverChain(null);
   };
 
   const handleNewGame = () => {
@@ -182,10 +241,12 @@ export default function App() {
     setSelectedPairIndex(pairIndex);
   };
 
+  // Click on domino creates a new chain
   const handleDominoClick = (dominoIndex) => {
-    dispatch({ type: 'ADD_CHAIN', dominoIndex, chainIndex: null });
+    dispatch({ type: 'CREATE_NEW_CHAIN', dominoIndex });
   };
 
+  // Click on chain to select for potential joining
   const handleChainClick = (chainIndex) => {
     if (selectedChainIndex === null) {
       setSelectedChainIndex(chainIndex);
@@ -227,10 +288,12 @@ export default function App() {
 
   const handleDominoDragStart = (event, dominoIndex) => {
     event.dataTransfer.setData('domino-index', String(dominoIndex));
+    event.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDominoDrop = (event) => {
     event.preventDefault();
+    setDragOverChain(null);
     const fromIndex = Number(event.dataTransfer.getData('domino-index'));
     if (Number.isNaN(fromIndex)) return;
 
@@ -241,15 +304,87 @@ export default function App() {
     dispatch({ type: 'REORDER_DOMINOS', fromIndex, toIndex });
   };
 
+  // Handle dropping a domino onto a chain drop zone
+  const handleChainDropZone = (event, chainIndex, position) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragOverChain(null);
+
+    const dominoIndex = Number(event.dataTransfer.getData('domino-index'));
+    if (Number.isNaN(dominoIndex)) {
+      // Maybe it's a chain being dropped to join
+      const draggedChainIndex = Number(event.dataTransfer.getData('chain-index'));
+      if (!Number.isNaN(draggedChainIndex) && draggedChainIndex !== chainIndex) {
+        dispatch({
+          type: 'JOIN_CHAINS',
+          chainIndex1: draggedChainIndex,
+          chainIndex2: chainIndex
+        });
+      }
+      return;
+    }
+
+    const domino = state.dominos[dominoIndex];
+    if (!domino || domino.inChain) return;
+
+    if (position === 'start') {
+      dispatch({ type: 'ADD_TO_CHAIN_START', dominoIndex, chainIndex });
+    } else {
+      dispatch({ type: 'ADD_TO_CHAIN_END', dominoIndex, chainIndex });
+    }
+  };
+
   const handleChainDragStart = (event, chainIndex) => {
     event.dataTransfer.setData('chain-index', String(chainIndex));
+    event.dataTransfer.effectAllowed = 'move';
   };
 
   const handleChainDrop = (event, targetIndex) => {
     event.preventDefault();
-    const fromIndex = Number(event.dataTransfer.getData('chain-index'));
-    if (Number.isNaN(fromIndex) || fromIndex === targetIndex) return;
-    dispatch({ type: 'REORDER_CHAINS', fromIndex, toIndex: targetIndex });
+    setDragOverChain(null);
+
+    const fromChainIndex = Number(event.dataTransfer.getData('chain-index'));
+    if (!Number.isNaN(fromChainIndex)) {
+      if (fromChainIndex !== targetIndex) {
+        // Check if we should join or reorder
+        const chain1 = state.chains[fromChainIndex];
+        const chain2 = state.chains[targetIndex];
+        if (canJoinChains(chain1, chain2)) {
+          dispatch({
+            type: 'JOIN_CHAINS',
+            chainIndex1: fromChainIndex,
+            chainIndex2: targetIndex
+          });
+        } else {
+          dispatch({ type: 'REORDER_CHAINS', fromIndex: fromChainIndex, toIndex: targetIndex });
+        }
+      }
+      return;
+    }
+
+    // Check if it's a domino being dropped on the chain
+    const dominoIndex = Number(event.dataTransfer.getData('domino-index'));
+    if (!Number.isNaN(dominoIndex)) {
+      const domino = state.dominos[dominoIndex];
+      if (domino && !domino.inChain) {
+        // Try to add to end first, then start
+        const chain = state.chains[targetIndex];
+        if (canConnectToChainEnd(domino, chain)) {
+          dispatch({ type: 'ADD_TO_CHAIN_END', dominoIndex, chainIndex: targetIndex });
+        } else if (canConnectToChainStart(domino, chain)) {
+          dispatch({ type: 'ADD_TO_CHAIN_START', dominoIndex, chainIndex: targetIndex });
+        }
+      }
+    }
+  };
+
+  const handleChainDragOver = (event, chainIndex, position = null) => {
+    event.preventDefault();
+    setDragOverChain({ chainIndex, position });
+  };
+
+  const handleChainDragLeave = () => {
+    setDragOverChain(null);
   };
 
   const handleCardDragStart = (event, columnIndex) => {
@@ -288,7 +423,9 @@ export default function App() {
   // Check if a domino can connect to any chain
   const canDominoConnect = (domino) => {
     if (state.chains.length === 0) return true;
-    return state.chains.some(chain => canConnectToChain(domino, chain));
+    return state.chains.some(chain =>
+      canConnectToChainEnd(domino, chain) || canConnectToChainStart(domino, chain)
+    );
   };
 
   // Check if this chain can join with the selected chain
@@ -299,6 +436,12 @@ export default function App() {
     return canJoinChains(chain1, chain2);
   };
 
+  // Check if drop zone should be highlighted
+  const isDropZoneActive = (chainIndex, position) => {
+    if (!dragOverChain) return false;
+    return dragOverChain.chainIndex === chainIndex && dragOverChain.position === position;
+  };
+
   return (
     <div id="game-container">
       <header>
@@ -306,7 +449,6 @@ export default function App() {
         <div className="controls">
           <button onClick={handleNewGame}>New Game</button>
           <button onClick={handleUndo}>Undo</button>
-          <button id="clear-chain-btn" onClick={() => dispatch({ type: 'CLEAR_CHAIN', chainIndex: null })}>Clear All Chains</button>
           <button id="help-btn" onClick={() => setIsHelpOpen(true)} aria-label="Help">?</button>
         </div>
       </header>
@@ -317,7 +459,7 @@ export default function App() {
             <h2>Workyard</h2>
             <div className="workyard-info">
               <span>Pairs: {state.pairs.length}/{MAX_PAIRS}</span>
-              <span>Dominos: {state.dominos.length}</span>
+              <span>Dominos: {availableDominos}</span>
               <span>Chains: {state.chains.length} ({totalChainLength} dominos)</span>
             </div>
           </div>
@@ -327,11 +469,12 @@ export default function App() {
               <h3>
                 Chains <span>({state.chains.length} chains, {totalChainLength} dominos total)</span>
               </h3>
+              <span className="chain-hint">Click domino to create chain. Drag to add.</span>
             </div>
 
             <div id="chains-container" ref={containerRef}>
               {state.chains.length === 0 && (
-                <span className="empty-message">Click dominos to build chains...</span>
+                <span className="empty-message">Click a domino to start a chain...</span>
               )}
               {state.chains.map((chain, chainIndex) => {
                 const isCircular = checkCircular(chain);
@@ -348,39 +491,36 @@ export default function App() {
                       isCircular ? 'circular' : '',
                       isSelected ? 'selected' : '',
                       canJoin ? 'can-join' : ''
-                    ].join(' ')}
+                    ].filter(Boolean).join(' ')}
                     draggable
                     onDragStart={(e) => handleChainDragStart(e, chainIndex)}
-                    onDragOver={(e) => e.preventDefault()}
+                    onDragOver={(e) => handleChainDragOver(e, chainIndex)}
+                    onDragLeave={handleChainDragLeave}
                     onDrop={(e) => handleChainDrop(e, chainIndex)}
                     onClick={() => handleChainClick(chainIndex)}
                   >
                     <div className="chain-info">
                       <span className="chain-label">Chain {chainIndex + 1}</span>
                       <span className="chain-ends">{chainEnds?.start} ... {chainEnds?.end}</span>
+                      <span className="chain-length">{chain.length} domino{chain.length !== 1 ? 's' : ''}</span>
                       {isCircular && <span className="chain-circular-badge">Circular</span>}
-                      <button
-                        className="small-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          dispatch({ type: 'REMOVE_LAST', chainIndex });
-                        }}
-                        disabled={chain.length === 0}
-                      >
-                        Remove Last
-                      </button>
-                      <button
-                        className="small-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          dispatch({ type: 'CLEAR_CHAIN', chainIndex });
-                        }}
-                      >
-                        Clear
-                      </button>
                     </div>
 
                     <div className="chain-display">
+                      {/* Start drop zone */}
+                      <div
+                        className={[
+                          'chain-drop-zone',
+                          'drop-start',
+                          isDropZoneActive(chainIndex, 'start') ? 'active' : ''
+                        ].filter(Boolean).join(' ')}
+                        onDragOver={(e) => handleChainDragOver(e, chainIndex, 'start')}
+                        onDragLeave={handleChainDragLeave}
+                        onDrop={(e) => handleChainDropZone(e, chainIndex, 'start')}
+                      >
+                        <span className="drop-indicator">+</span>
+                      </div>
+
                       {chainRows.map((row, rowIndex) => (
                         <div key={`row-${rowIndex}`} className="chain-row">
                           {row.map((domino, index) => {
@@ -388,18 +528,13 @@ export default function App() {
                             const isEnd = rowIndex === chainRows.length - 1 && index === row.length - 1;
                             return (
                               <div key={domino.id} className="chain-segment">
-                                <div
-                                  className={[
-                                    'chain-domino',
-                                    isCircular ? 'circular' : '',
-                                    isStart ? 'chain-start' : '',
-                                    isEnd ? 'chain-end' : ''
-                                  ].join(' ')}
-                                >
-                                  <span className="chain-val">{domino.displayValue1 || domino.value1}</span>
-                                  <span className="chain-sep">|</span>
-                                  <span className="chain-val">{domino.displayValue2 || domino.value2}</span>
-                                </div>
+                                <DominoDisplay
+                                  domino={domino}
+                                  isCircular={isCircular}
+                                  isStart={isStart}
+                                  isEnd={isEnd}
+                                  compact
+                                />
                                 {index < row.length - 1 && (
                                   <span className={`chain-connector ${isCircular ? 'circular' : ''}`}>—</span>
                                 )}
@@ -415,6 +550,20 @@ export default function App() {
                           )}
                         </div>
                       ))}
+
+                      {/* End drop zone */}
+                      <div
+                        className={[
+                          'chain-drop-zone',
+                          'drop-end',
+                          isDropZoneActive(chainIndex, 'end') ? 'active' : ''
+                        ].filter(Boolean).join(' ')}
+                        onDragOver={(e) => handleChainDragOver(e, chainIndex, 'end')}
+                        onDragLeave={handleChainDragLeave}
+                        onDrop={(e) => handleChainDropZone(e, chainIndex, 'end')}
+                      >
+                        <span className="drop-indicator">+</span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -439,7 +588,7 @@ export default function App() {
                         pair ? 'filled' : '',
                         canCombine ? 'can-combine' : '',
                         selectedPairIndex === slotIndex ? 'selected' : ''
-                      ].join(' ')}
+                      ].filter(Boolean).join(' ')}
                       data-slot={slotIndex}
                       draggable={Boolean(pair)}
                       onDragStart={(event) => pair && handlePairDragStart(event, slotIndex)}
@@ -448,13 +597,7 @@ export default function App() {
                       onClick={() => pair && handlePairClick(slotIndex)}
                     >
                       {pair && pair.map((card) => (
-                        <div key={card.id} className={`card mini ${card.isRed ? 'red' : 'black'}`}>
-                          <div className="card-corner">
-                            <span className="card-rank">{card.rank}</span>
-                            <span className="card-suit">{card.suit}</span>
-                          </div>
-                          <span className="card-center">{card.suit}</span>
-                        </div>
+                        <MiniCard key={card.id} card={card} />
                       ))}
                     </div>
                   );
@@ -463,53 +606,44 @@ export default function App() {
             </div>
 
             <div id="dominos-section">
-              <div className="section-label">Dominos (click to add to chain, drag to reorder)</div>
+              <div className="section-label">Dominos (click to create chain, drag onto chain to add)</div>
               <div
                 id="dominos-container"
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={handleDominoDrop}
               >
                 {state.dominos.map((domino, index) => {
+                  // Skip dominos that are already in a chain - they disappear from workyard
+                  if (domino.inChain) return null;
+
                   const pair1 = domino.pair1 || domino.cards.slice(0, 2);
                   const pair2 = domino.pair2 || domino.cards.slice(2, 4);
-                  const connectable = !domino.inChain && canDominoConnect(domino);
+                  const connectable = canDominoConnect(domino);
                   return (
                     <div
                       key={domino.id}
-                      className={['domino', domino.inChain ? 'in-chain' : '', connectable ? 'can-connect' : ''].join(' ')}
+                      className={[
+                        'domino',
+                        connectable ? 'can-connect' : ''
+                      ].filter(Boolean).join(' ')}
                       data-index={index}
-                      draggable={!domino.inChain}
-                      onDragStart={(event) => !domino.inChain && handleDominoDragStart(event, index)}
-                      onClick={() => !domino.inChain && handleDominoClick(index)}
+                      draggable
+                      onDragStart={(event) => handleDominoDragStart(event, index)}
+                      onClick={() => handleDominoClick(index)}
                     >
-                      <div className="domino-pair" title={getDominoPairLabel(pair1)}>
+                      <div className="domino-pair">
                         {pair1.map((card) => (
-                          <div key={card.id} className={`card mini ${card.isRed ? 'red' : 'black'}`}>
-                            <div className="card-corner">
-                              <span className="card-rank">{card.rank}</span>
-                              <span className="card-suit">{card.suit}</span>
-                            </div>
-                            <span className="card-center">{card.suit}</span>
-                          </div>
+                          <MiniCard key={card.id} card={card} />
                         ))}
                       </div>
                       <div className="domino-divider"></div>
-                      <div className="domino-pair" title={getDominoPairLabel(pair2)}>
+                      <div className="domino-pair">
                         {pair2.map((card) => (
-                          <div key={card.id} className={`card mini ${card.isRed ? 'red' : 'black'}`}>
-                            <div className="card-corner">
-                              <span className="card-rank">{card.rank}</span>
-                              <span className="card-suit">{card.suit}</span>
-                            </div>
-                            <span className="card-center">{card.suit}</span>
-                          </div>
+                          <MiniCard key={card.id} card={card} />
                         ))}
                       </div>
                       <div className="domino-label">
                         {domino.value1} | {domino.value2}
-                      </div>
-                      <div className="domino-sub">
-                        {getDominoSubLabel(pair1)} · {getDominoSubLabel(pair2)}
                       </div>
                     </div>
                   );
@@ -524,11 +658,19 @@ export default function App() {
             Tableau <span id="tableau-cards">({totalTableauCards} cards)</span>
           </h2>
           <div id="tableau-columns">
-            {state.tableau.map((column, columnIndex) => (
+            {state.tableau.map((column, columnIndex) => {
+              // Calculate column height based on card count
+              // Each card offset is 24px (--card-stack-offset), plus card height at the end
+              const columnMinHeight = column.length > 0
+                ? `calc(${(column.length - 1) * 24}px + var(--card-height) + 8px)`
+                : undefined;
+
+              return (
               <div
                 key={`col-${columnIndex}`}
-                className={['column', column.length === 0 ? 'empty' : '', getColumnHighlight(columnIndex)].join(' ')}
+                className={['column', column.length === 0 ? 'empty' : '', getColumnHighlight(columnIndex)].filter(Boolean).join(' ')}
                 data-column={columnIndex}
+                style={{ minHeight: columnMinHeight }}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => handleColumnDrop(event, columnIndex)}
                 onClick={() => column.length === 0 && handleEmptyColumnClick(columnIndex)}
@@ -546,7 +688,7 @@ export default function App() {
                         'in-column',
                         isTop ? 'top-card' : '',
                         isSelected ? 'selected' : ''
-                      ].join(' ')}
+                      ].filter(Boolean).join(' ')}
                       style={{ top: `${cardIndex * 24}px` }}
                       draggable={isTop}
                       onDragStart={(event) => isTop && handleCardDragStart(event, columnIndex)}
@@ -565,7 +707,8 @@ export default function App() {
                   );
                 })}
               </div>
-            ))}
+            );
+            })}
           </div>
         </section>
       </main>
@@ -596,25 +739,25 @@ export default function App() {
                 <li>Example: A+K + 7+7 = valid (has all suits)</li>
                 <li>Example: 3+J + 5+9 = valid (has all suits)</li>
                 <li>Invalid: A+K + 2+Q if both have same suits</li>
-                <li>Domino values are ordered with lower value first</li>
               </ul>
               <h3>Making Chains</h3>
               <ul>
-                <li>Click dominos to add them to a chain</li>
-                <li>You can have multiple chains at once</li>
+                <li><strong>Click</strong> a domino to start a NEW chain</li>
+                <li><strong>Drag</strong> a domino onto a chain to add it</li>
+                <li>You can drop on the start OR end of a chain</li>
                 <li>Dominos connect by matching end values</li>
-                <li>Example: A-K connects to A-K, A-K, or K-7</li>
+                <li>Example: A-K connects to K-7 connects to 7-2</li>
+                <li><strong>Chains are permanent</strong> - plan carefully!</li>
                 <li>Click two chains to join them if ends match</li>
-                <li>Drag chains to reorder them</li>
                 <li>Goal: single circular chain with all 52 cards</li>
               </ul>
               <h3>Workyard Tips</h3>
               <ul>
-                <li>Drag dominos and chains to organize them</li>
+                <li>Drag dominos to reorder them</li>
                 <li>Drag pairs to reorder the slots</li>
+                <li>Drag chains to reorder them</li>
                 <li>Long chains wrap with arrow indicators</li>
-                <li>Use "Remove Last" to undo chain additions</li>
-                <li>Use "Clear" to remove a specific chain</li>
+                <li>Think ahead - chains cannot be undone!</li>
               </ul>
             </div>
           </div>

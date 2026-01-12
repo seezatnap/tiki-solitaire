@@ -18,6 +18,8 @@ describe('App Component', () => {
     vi.clearAllMocks();
     // Clean up any previous renders
     document.body.innerHTML = '';
+    // Clear localStorage to ensure clean state
+    localStorage.clear();
   });
 
   describe('Initial Render', () => {
@@ -32,7 +34,7 @@ describe('App Component', () => {
       const { container: c } = render(<App />);
       container = c;
       const buttons = container.querySelectorAll('header .controls button');
-      expect(buttons.length).toBe(4); // New Game, Undo, Clear All Chains, Help
+      expect(buttons.length).toBe(3); // New Game, Undo, Help (Clear All Chains removed - chains are permanent)
     });
 
     it('renders 8 tableau columns', () => {
@@ -68,7 +70,7 @@ describe('App Component', () => {
       container = c;
       const emptyMessage = container.querySelector('#chains-container .empty-message');
       expect(emptyMessage).toBeInTheDocument();
-      expect(emptyMessage.textContent).toMatch(/click dominos to build chains/i);
+      expect(emptyMessage.textContent).toMatch(/click a domino to start a chain/i);
     });
   });
 
@@ -227,6 +229,7 @@ describe('App Component - Game Logic Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = '';
+    localStorage.clear();
   });
 
   it('creates pair when compatible cards are clicked', () => {
@@ -248,6 +251,7 @@ describe('App Component - Game Logic Integration', () => {
       history: []
     };
 
+    vi.spyOn(gameLogic, 'loadState').mockReturnValue(null);
     vi.spyOn(gameLogic, 'createInitialState').mockReturnValue(mockState);
 
     const { container } = render(<App />);
@@ -268,6 +272,7 @@ describe('App Component - Drag and Drop', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = '';
+    localStorage.clear();
   });
 
   it('card is draggable when it is top card', () => {
@@ -289,10 +294,12 @@ describe('App Component - Column Highlighting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = '';
+    localStorage.clear();
   });
 
   it('highlights empty columns when card is selected', () => {
     // Create state with an empty column
+    vi.spyOn(gameLogic, 'loadState').mockReturnValue(null);
     vi.spyOn(gameLogic, 'createInitialState').mockReturnValue({
       tableau: [
         [{ id: 'A♥', rank: 'A', suit: '♥', value: 1, isRed: true }],
@@ -325,6 +332,7 @@ describe('App Component - Responsive Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = '';
+    localStorage.clear();
   });
 
   it('renders without crashing at different implied widths', () => {
@@ -334,5 +342,171 @@ describe('App Component - Responsive Layout', () => {
     rerender(<App />);
     const heading = container.querySelector('h1');
     expect(heading).toBeInTheDocument();
+  });
+});
+
+describe('App Component - Domino Display in Workyard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+    localStorage.clear();
+  });
+
+  it('shows dominos that are not in chains', () => {
+    const domino1 = {
+      id: 'domino1',
+      value1: 'A-K',
+      value2: '5-9',
+      pair1: [
+        { id: 'A♥', rank: 'A', suit: '♥', value: 1, isRed: true },
+        { id: 'K♣', rank: 'K', suit: '♣', value: 13, isRed: false }
+      ],
+      pair2: [
+        { id: '5♦', rank: '5', suit: '♦', value: 5, isRed: true },
+        { id: '9♠', rank: '9', suit: '♠', value: 9, isRed: false }
+      ],
+      cards: [],
+      inChain: false
+    };
+
+    vi.spyOn(gameLogic, 'loadState').mockReturnValue(null);
+    vi.spyOn(gameLogic, 'createInitialState').mockReturnValue({
+      tableau: Array(8).fill([]),
+      pairs: [],
+      dominos: [domino1],
+      chains: [],
+      moveCount: 0,
+      history: []
+    });
+
+    const { container } = render(<App />);
+    const dominos = container.querySelectorAll('#dominos-container .domino');
+    expect(dominos.length).toBe(1);
+  });
+
+  it('hides dominos that are in chains', () => {
+    const domino1 = {
+      id: 'domino1',
+      value1: 'A-K',
+      value2: '5-9',
+      pair1: [
+        { id: 'A♥', rank: 'A', suit: '♥', value: 1, isRed: true },
+        { id: 'K♣', rank: 'K', suit: '♣', value: 13, isRed: false }
+      ],
+      pair2: [
+        { id: '5♦', rank: '5', suit: '♦', value: 5, isRed: true },
+        { id: '9♠', rank: '9', suit: '♠', value: 9, isRed: false }
+      ],
+      cards: [],
+      inChain: true // This domino is in a chain
+    };
+
+    vi.spyOn(gameLogic, 'loadState').mockReturnValue(null);
+    vi.spyOn(gameLogic, 'createInitialState').mockReturnValue({
+      tableau: Array(8).fill([]),
+      pairs: [],
+      dominos: [domino1],
+      chains: [[{ ...domino1, displayValue1: 'A-K', displayValue2: '5-9' }]],
+      moveCount: 0,
+      history: []
+    });
+
+    const { container } = render(<App />);
+    const dominos = container.querySelectorAll('#dominos-container .domino');
+    expect(dominos.length).toBe(0); // Domino should not be visible
+  });
+
+  it('shows correct count of available dominos in workyard info', () => {
+    const domino1 = {
+      id: 'domino1',
+      value1: 'A-K',
+      value2: '5-9',
+      pair1: [],
+      pair2: [],
+      cards: [],
+      inChain: false
+    };
+    const domino2 = {
+      id: 'domino2',
+      value1: '2-Q',
+      value2: '3-J',
+      pair1: [],
+      pair2: [],
+      cards: [],
+      inChain: true // In chain
+    };
+
+    vi.spyOn(gameLogic, 'loadState').mockReturnValue(null);
+    vi.spyOn(gameLogic, 'createInitialState').mockReturnValue({
+      tableau: Array(8).fill([]),
+      pairs: [],
+      dominos: [domino1, domino2],
+      chains: [[{ ...domino2, displayValue1: '2-Q', displayValue2: '3-J' }]],
+      moveCount: 0,
+      history: []
+    });
+
+    const { container } = render(<App />);
+    const workyardInfo = container.querySelector('.workyard-info');
+    // Should show "Dominos: 1" (only domino1 is available)
+    expect(workyardInfo.textContent).toMatch(/dominos.*1/i);
+  });
+});
+
+describe('App Component - Column Height Calculation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+    localStorage.clear();
+  });
+
+  it('calculates column height based on number of cards', () => {
+    // Create a state with many cards in one column
+    const cards = Array.from({ length: 20 }, (_, i) => ({
+      id: `card-${i}`,
+      rank: String((i % 13) + 1),
+      suit: ['♥', '♦', '♣', '♠'][i % 4],
+      value: (i % 13) + 1,
+      isRed: i % 4 < 2
+    }));
+
+    vi.spyOn(gameLogic, 'loadState').mockReturnValue(null);
+    vi.spyOn(gameLogic, 'createInitialState').mockReturnValue({
+      tableau: [cards, [], [], [], [], [], [], []],
+      pairs: [],
+      dominos: [],
+      chains: [],
+      moveCount: 0,
+      history: []
+    });
+
+    const { container } = render(<App />);
+    const columns = container.querySelectorAll('#tableau-columns .column');
+    const firstColumn = columns[0];
+
+    // Column should have a min-height style set
+    // With 20 cards at 24px offset each plus card height
+    expect(firstColumn.style.minHeight).toContain('calc');
+    expect(firstColumn.style.minHeight).toContain('456px'); // (20-1) * 24 = 456
+  });
+
+  it('columns without cards have no min-height override', () => {
+    vi.spyOn(gameLogic, 'loadState').mockReturnValue(null);
+    vi.spyOn(gameLogic, 'createInitialState').mockReturnValue({
+      tableau: [[], [], [], [], [], [], [], []],
+      pairs: [],
+      dominos: [],
+      chains: [],
+      moveCount: 0,
+      history: []
+    });
+
+    const { container } = render(<App />);
+    const columns = container.querySelectorAll('#tableau-columns .column');
+
+    // Empty columns should not have inline min-height
+    columns.forEach(col => {
+      expect(col.style.minHeight).toBe('');
+    });
   });
 });

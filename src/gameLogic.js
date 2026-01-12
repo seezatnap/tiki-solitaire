@@ -91,11 +91,11 @@ export const canFormDomino = (pair1, pair2) => {
   return allSuits.size === 4;
 };
 
+// Snapshot state for undo - EXCLUDES chains (chains are permanent)
 const snapshotState = (state) => ({
   tableau: JSON.parse(JSON.stringify(state.tableau)),
   pairs: JSON.parse(JSON.stringify(state.pairs)),
   dominos: JSON.parse(JSON.stringify(state.dominos)),
-  chains: JSON.parse(JSON.stringify(state.chains)),
   moveCount: state.moveCount
 });
 
@@ -107,11 +107,13 @@ const withHistory = (state) => {
   return history;
 };
 
+// Undo state - restores tableau, pairs, dominos but NOT chains (chains are permanent)
 export const undoState = (state) => {
   if (state.history.length === 0) return state;
   const previous = state.history[state.history.length - 1];
   return {
     ...previous,
+    chains: state.chains, // Keep current chains - they're permanent
     history: state.history.slice(0, -1)
   };
 };
@@ -245,19 +247,22 @@ export const getChainEndValues = (chain) => {
   };
 };
 
-// Check if domino can connect to any chain end (start or end of any chain)
-export const canConnectToChain = (domino, chain) => {
+// Check if domino can connect to chain end
+export const canConnectToChainEnd = (domino, chain) => {
   if (!chain || !chain.length) return true;
   const ends = getChainEndValues(chain);
   return domino.value1 === ends.end || domino.value2 === ends.end;
 };
 
-// Check if domino can connect to the start of a chain
+// Check if domino can connect to chain start
 export const canConnectToChainStart = (domino, chain) => {
   if (!chain || !chain.length) return true;
   const ends = getChainEndValues(chain);
   return domino.value1 === ends.start || domino.value2 === ends.start;
 };
+
+// Legacy alias for backward compatibility
+export const canConnectToChain = canConnectToChainEnd;
 
 // Get all chains this domino can connect to
 export const getConnectableChains = (domino, chains) => {
@@ -276,117 +281,17 @@ export const getConnectableChains = (domino, chains) => {
   return result;
 };
 
-// Add domino to a specific chain
-export const addDominoToChain = (state, dominoIndex, chainIndex = null) => {
+// Create a new chain with a single domino (when clicking a domino)
+export const createNewChainWithDomino = (state, dominoIndex) => {
   const domino = state.dominos[dominoIndex];
   if (!domino || domino.inChain) return state;
 
-  const chains = [...state.chains];
-
-  // If no chain specified and no chains exist, start a new chain
-  if (chainIndex === null && chains.length === 0) {
-    const oriented = {
-      ...domino,
-      originalIndex: dominoIndex,
-      displayValue1: domino.value1,
-      displayValue2: domino.value2
-    };
-    const nextDominos = state.dominos.map((item, index) =>
-      index === dominoIndex ? { ...item, inChain: true } : item
-    );
-    return {
-      ...state,
-      dominos: nextDominos,
-      chains: [[oriented]],
-      moveCount: state.moveCount + 1,
-      history: withHistory(state)
-    };
-  }
-
-  // If no chain specified, try to connect to any existing chain
-  if (chainIndex === null) {
-    for (let i = 0; i < chains.length; i++) {
-      if (canConnectToChain(domino, chains[i])) {
-        chainIndex = i;
-        break;
-      }
-    }
-
-    // If still can't connect, start a new chain
-    if (chainIndex === null) {
-      const oriented = {
-        ...domino,
-        originalIndex: dominoIndex,
-        displayValue1: domino.value1,
-        displayValue2: domino.value2
-      };
-      const nextDominos = state.dominos.map((item, index) =>
-        index === dominoIndex ? { ...item, inChain: true } : item
-      );
-      return {
-        ...state,
-        dominos: nextDominos,
-        chains: [...chains, [oriented]],
-        moveCount: state.moveCount + 1,
-        history: withHistory(state)
-      };
-    }
-  }
-
-  const chain = chains[chainIndex];
-  if (!chain) return state;
-
-  // Check if can connect to end
-  const ends = getChainEndValues(chain);
-  const canConnectEnd = domino.value1 === ends.end || domino.value2 === ends.end;
-  const canConnectStart = domino.value1 === ends.start || domino.value2 === ends.start;
-
-  if (!canConnectEnd && !canConnectStart) {
-    // Can't connect to this chain, start new chain
-    const oriented = {
-      ...domino,
-      originalIndex: dominoIndex,
-      displayValue1: domino.value1,
-      displayValue2: domino.value2
-    };
-    const nextDominos = state.dominos.map((item, index) =>
-      index === dominoIndex ? { ...item, inChain: true } : item
-    );
-    return {
-      ...state,
-      dominos: nextDominos,
-      chains: [...chains, [oriented]],
-      moveCount: state.moveCount + 1,
-      history: withHistory(state)
-    };
-  }
-
   const oriented = {
     ...domino,
-    originalIndex: dominoIndex
+    originalIndex: dominoIndex,
+    displayValue1: domino.value1,
+    displayValue2: domino.value2
   };
-
-  // Prefer connecting to end
-  if (canConnectEnd) {
-    if (domino.value1 === ends.end) {
-      oriented.displayValue1 = domino.value1;
-      oriented.displayValue2 = domino.value2;
-    } else {
-      oriented.displayValue1 = domino.value2;
-      oriented.displayValue2 = domino.value1;
-    }
-    chains[chainIndex] = [...chain, oriented];
-  } else {
-    // Connect to start
-    if (domino.value2 === ends.start) {
-      oriented.displayValue1 = domino.value1;
-      oriented.displayValue2 = domino.value2;
-    } else {
-      oriented.displayValue1 = domino.value2;
-      oriented.displayValue2 = domino.value1;
-    }
-    chains[chainIndex] = [oriented, ...chain];
-  }
 
   const nextDominos = state.dominos.map((item, index) =>
     index === dominoIndex ? { ...item, inChain: true } : item
@@ -395,68 +300,124 @@ export const addDominoToChain = (state, dominoIndex, chainIndex = null) => {
   return {
     ...state,
     dominos: nextDominos,
-    chains,
-    moveCount: state.moveCount + 1,
-    history: withHistory(state)
+    chains: [...state.chains, [oriented]],
+    moveCount: state.moveCount + 1
+    // No history for chain operations - chains are permanent
   };
 };
 
-// Remove last domino from a specific chain
-export const removeLastFromChain = (state, chainIndex = 0) => {
-  if (!state.chains.length || !state.chains[chainIndex]?.length) return state;
+// Add domino to the END of a specific chain (drag to chain end)
+export const addDominoToChainEnd = (state, dominoIndex, chainIndex) => {
+  const domino = state.dominos[dominoIndex];
+  if (!domino || domino.inChain) return state;
 
-  const chains = [...state.chains];
-  const chain = [...chains[chainIndex]];
-  const removed = chain.pop();
+  const chain = state.chains[chainIndex];
+  if (!chain) return state;
 
-  if (chain.length === 0) {
-    // Remove empty chain
-    chains.splice(chainIndex, 1);
-  } else {
-    chains[chainIndex] = chain;
-  }
+  const ends = getChainEndValues(chain);
+  const canConnect = domino.value1 === ends.end || domino.value2 === ends.end;
 
-  const nextDominos = state.dominos.map((domino) =>
-    domino.id === removed.id ? { ...domino, inChain: false } : domino
-  );
+  if (!canConnect) return state;
 
-  return {
-    ...state,
-    dominos: nextDominos,
-    chains,
-    history: withHistory(state)
+  const oriented = {
+    ...domino,
+    originalIndex: dominoIndex
   };
-};
 
-// Clear a specific chain or all chains
-export const clearChain = (state, chainIndex = null) => {
-  if (!state.chains.length) return state;
-
-  let chainsToRemove;
-  let nextChains;
-
-  if (chainIndex === null) {
-    // Clear all chains
-    chainsToRemove = state.chains.flat();
-    nextChains = [];
+  if (domino.value1 === ends.end) {
+    oriented.displayValue1 = domino.value1;
+    oriented.displayValue2 = domino.value2;
   } else {
-    // Clear specific chain
-    chainsToRemove = state.chains[chainIndex] || [];
-    nextChains = state.chains.filter((_, i) => i !== chainIndex);
+    oriented.displayValue1 = domino.value2;
+    oriented.displayValue2 = domino.value1;
   }
 
-  const ids = new Set(chainsToRemove.map((domino) => domino.id));
-  const nextDominos = state.dominos.map((domino) =>
-    ids.has(domino.id) ? { ...domino, inChain: false } : domino
+  const nextChains = [...state.chains];
+  nextChains[chainIndex] = [...chain, oriented];
+
+  const nextDominos = state.dominos.map((item, index) =>
+    index === dominoIndex ? { ...item, inChain: true } : item
   );
 
   return {
     ...state,
     dominos: nextDominos,
     chains: nextChains,
-    history: withHistory(state)
+    moveCount: state.moveCount + 1
+    // No history for chain operations - chains are permanent
   };
 };
+
+// Add domino to the START of a specific chain (drag to chain start)
+export const addDominoToChainStart = (state, dominoIndex, chainIndex) => {
+  const domino = state.dominos[dominoIndex];
+  if (!domino || domino.inChain) return state;
+
+  const chain = state.chains[chainIndex];
+  if (!chain) return state;
+
+  const ends = getChainEndValues(chain);
+  const canConnect = domino.value1 === ends.start || domino.value2 === ends.start;
+
+  if (!canConnect) return state;
+
+  const oriented = {
+    ...domino,
+    originalIndex: dominoIndex
+  };
+
+  if (domino.value2 === ends.start) {
+    oriented.displayValue1 = domino.value1;
+    oriented.displayValue2 = domino.value2;
+  } else {
+    oriented.displayValue1 = domino.value2;
+    oriented.displayValue2 = domino.value1;
+  }
+
+  const nextChains = [...state.chains];
+  nextChains[chainIndex] = [oriented, ...chain];
+
+  const nextDominos = state.dominos.map((item, index) =>
+    index === dominoIndex ? { ...item, inChain: true } : item
+  );
+
+  return {
+    ...state,
+    dominos: nextDominos,
+    chains: nextChains,
+    moveCount: state.moveCount + 1
+    // No history for chain operations - chains are permanent
+  };
+};
+
+// Legacy function - now clicking creates new chain, dragging adds to existing chain
+export const addDominoToChain = (state, dominoIndex, chainIndex = null) => {
+  const domino = state.dominos[dominoIndex];
+  if (!domino || domino.inChain) return state;
+
+  // If no chain specified, create a new chain with this domino
+  if (chainIndex === null) {
+    return createNewChainWithDomino(state, dominoIndex);
+  }
+
+  // Otherwise, try to add to the specified chain (prefer end)
+  const chain = state.chains[chainIndex];
+  if (!chain) return createNewChainWithDomino(state, dominoIndex);
+
+  // Try end first, then start
+  if (canConnectToChainEnd(domino, chain)) {
+    return addDominoToChainEnd(state, dominoIndex, chainIndex);
+  }
+  if (canConnectToChainStart(domino, chain)) {
+    return addDominoToChainStart(state, dominoIndex, chainIndex);
+  }
+
+  // Can't connect to this chain, create new chain
+  return createNewChainWithDomino(state, dominoIndex);
+};
+
+// REMOVED: removeLastFromChain - chains are permanent
+// REMOVED: clearChain - chains are permanent
 
 // Check if two chains can be joined
 export const canJoinChains = (chain1, chain2) => {
@@ -468,6 +429,15 @@ export const canJoinChains = (chain1, chain2) => {
          ends1.end === ends2.end ||
          ends1.start === ends2.start ||
          ends1.start === ends2.end;
+};
+
+// Reverse a chain (swap display values)
+export const reverseChain = (chain) => {
+  return chain.slice().reverse().map(domino => ({
+    ...domino,
+    displayValue1: domino.displayValue2,
+    displayValue2: domino.displayValue1
+  }));
 };
 
 // Join two chains together
@@ -510,18 +480,9 @@ export const joinChains = (state, chainIndex1, chainIndex2) => {
   return {
     ...state,
     chains: nextChains,
-    moveCount: state.moveCount + 1,
-    history: withHistory(state)
+    moveCount: state.moveCount + 1
+    // No history for chain operations - chains are permanent
   };
-};
-
-// Reverse a chain (swap display values)
-export const reverseChain = (chain) => {
-  return chain.slice().reverse().map(domino => ({
-    ...domino,
-    displayValue1: domino.displayValue2,
-    displayValue2: domino.displayValue1
-  }));
 };
 
 // Reorder chains
@@ -536,8 +497,8 @@ export const reorderChains = (state, fromIndex, toIndex) => {
 
   return {
     ...state,
-    chains: nextChains,
-    history: withHistory(state)
+    chains: nextChains
+    // No history for chain reordering
   };
 };
 
@@ -597,3 +558,52 @@ export const reorderDominos = (state, fromIndex, toIndex) => {
 };
 
 export const countTableauCards = (tableau) => tableau.reduce((sum, col) => sum + col.length, 0);
+
+// Local Storage persistence
+const STORAGE_KEY = 'tiki-solitaire-state';
+
+export const saveState = (state) => {
+  try {
+    const stateToSave = {
+      tableau: state.tableau,
+      pairs: state.pairs,
+      dominos: state.dominos,
+      chains: state.chains,
+      moveCount: state.moveCount
+      // Note: history is not persisted to keep storage small
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+  } catch {
+    // Silently fail if localStorage is not available
+  }
+};
+
+export const loadState = () => {
+  try {
+    const savedState = localStorage.getItem(STORAGE_KEY);
+    if (!savedState) return null;
+
+    const parsed = JSON.parse(savedState);
+
+    // Validate the loaded state has required properties
+    if (!parsed.tableau || !Array.isArray(parsed.tableau) || parsed.tableau.length !== 8) {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      history: [] // Start with fresh history
+    };
+  } catch {
+    // If parsing fails, return null to start fresh
+    return null;
+  }
+};
+
+export const clearSavedState = () => {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Silently fail
+  }
+};

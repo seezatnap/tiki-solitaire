@@ -22,11 +22,13 @@ import {
   canConnectDominos,
   getChainEndValues,
   canConnectToChain,
+  canConnectToChainEnd,
   canConnectToChainStart,
   getConnectableChains,
+  createNewChainWithDomino,
+  addDominoToChainEnd,
+  addDominoToChainStart,
   addDominoToChain,
-  removeLastFromChain,
-  clearChain,
   canJoinChains,
   joinChains,
   reverseChain,
@@ -36,7 +38,10 @@ import {
   getTotalChainLength,
   reorderPairs,
   reorderDominos,
-  countTableauCards
+  countTableauCards,
+  saveState,
+  loadState,
+  clearSavedState
 } from '../gameLogic.js';
 
 // Helper function to create a card
@@ -50,6 +55,17 @@ const makeCard = (rank, suit) => ({
 
 // Helper function to create a pair
 const makePair = (card1, card2) => [card1, card2];
+
+// Helper to create a domino
+const makeDomino = (pair1, pair2, id = 'test-domino') => ({
+  id,
+  pair1,
+  pair2,
+  value1: getPairLabel(pair1),
+  value2: getPairLabel(pair2),
+  cards: [...pair1, ...pair2],
+  inChain: false
+});
 
 describe('createDeck', () => {
   it('creates a deck with 52 cards', () => {
@@ -281,6 +297,12 @@ describe('canFormDomino', () => {
     expect(canFormDomino(pair1, pair2)).toBe(true);
   });
 
+  it('returns true for different values with all 4 suits', () => {
+    const pair1 = makePair(makeCard('3', '♥'), makeCard('J', '♣'));
+    const pair2 = makePair(makeCard('2', '♦'), makeCard('Q', '♠'));
+    expect(canFormDomino(pair1, pair2)).toBe(true);
+  });
+
   it('returns false when pairs are missing suits', () => {
     // Both pairs have ♥ and ♣ only
     const pair1 = makePair(makeCard('A', '♥'), makeCard('K', '♣'));
@@ -485,7 +507,163 @@ describe('createDominoFromPairs', () => {
   });
 });
 
-describe('addDominoToChain', () => {
+describe('createNewChainWithDomino', () => {
+  let state;
+  let domino;
+
+  beforeEach(() => {
+    domino = {
+      id: 'domino1',
+      value1: 'A-K',
+      value2: '5-9',
+      pair1: makePair(makeCard('A', '♥'), makeCard('K', '♣')),
+      pair2: makePair(makeCard('5', '♦'), makeCard('9', '♠')),
+      cards: [],
+      inChain: false
+    };
+    state = {
+      ...createInitialState(),
+      dominos: [domino]
+    };
+  });
+
+  it('creates a new chain with the domino', () => {
+    const result = createNewChainWithDomino(state, 0);
+    expect(result.chains).toHaveLength(1);
+    expect(result.chains[0]).toHaveLength(1);
+    expect(result.dominos[0].inChain).toBe(true);
+  });
+
+  it('returns same state for domino already in chain', () => {
+    const inChainState = {
+      ...state,
+      dominos: [{ ...domino, inChain: true }]
+    };
+    const result = createNewChainWithDomino(inChainState, 0);
+    expect(result).toBe(inChainState);
+  });
+
+  it('sets displayValue1 and displayValue2', () => {
+    const result = createNewChainWithDomino(state, 0);
+    expect(result.chains[0][0].displayValue1).toBe('A-K');
+    expect(result.chains[0][0].displayValue2).toBe('5-9');
+  });
+});
+
+describe('addDominoToChainEnd', () => {
+  let state;
+  let domino1;
+  let domino2;
+
+  beforeEach(() => {
+    domino1 = {
+      id: 'domino1',
+      value1: 'A-K',
+      value2: '5-9',
+      pair1: makePair(makeCard('A', '♥'), makeCard('K', '♣')),
+      pair2: makePair(makeCard('5', '♦'), makeCard('9', '♠')),
+      cards: [],
+      inChain: true
+    };
+    domino2 = {
+      id: 'domino2',
+      value1: '3-J',
+      value2: '5-9',
+      pair1: makePair(makeCard('3', '♥'), makeCard('J', '♣')),
+      pair2: makePair(makeCard('5', '♦'), makeCard('9', '♠')),
+      cards: [],
+      inChain: false
+    };
+    state = {
+      ...createInitialState(),
+      dominos: [{ ...domino1, inChain: true }, domino2],
+      chains: [[{
+        ...domino1,
+        displayValue1: 'A-K',
+        displayValue2: '5-9'
+      }]]
+    };
+  });
+
+  it('adds domino to end of chain when value matches', () => {
+    const result = addDominoToChainEnd(state, 1, 0);
+    expect(result.chains[0]).toHaveLength(2);
+    expect(result.dominos[1].inChain).toBe(true);
+  });
+
+  it('orients domino correctly when added', () => {
+    const result = addDominoToChainEnd(state, 1, 0);
+    // domino2 connects at 5-9, so displayValue1 should be 5-9
+    expect(result.chains[0][1].displayValue1).toBe('5-9');
+    expect(result.chains[0][1].displayValue2).toBe('3-J');
+  });
+
+  it('returns same state when domino cannot connect', () => {
+    const disconnectedDomino = {
+      id: 'domino3',
+      value1: '2-Q',
+      value2: '4-10',
+      inChain: false
+    };
+    const stateWithDisconnected = {
+      ...state,
+      dominos: [...state.dominos, disconnectedDomino]
+    };
+    const result = addDominoToChainEnd(stateWithDisconnected, 2, 0);
+    expect(result).toBe(stateWithDisconnected);
+  });
+});
+
+describe('addDominoToChainStart', () => {
+  let state;
+  let domino1;
+  let domino2;
+
+  beforeEach(() => {
+    domino1 = {
+      id: 'domino1',
+      value1: 'A-K',
+      value2: '5-9',
+      pair1: makePair(makeCard('A', '♥'), makeCard('K', '♣')),
+      pair2: makePair(makeCard('5', '♦'), makeCard('9', '♠')),
+      cards: [],
+      inChain: true
+    };
+    domino2 = {
+      id: 'domino2',
+      value1: 'A-K',
+      value2: '3-J',
+      pair1: makePair(makeCard('A', '♥'), makeCard('K', '♣')),
+      pair2: makePair(makeCard('3', '♦'), makeCard('J', '♠')),
+      cards: [],
+      inChain: false
+    };
+    state = {
+      ...createInitialState(),
+      dominos: [{ ...domino1, inChain: true }, domino2],
+      chains: [[{
+        ...domino1,
+        displayValue1: 'A-K',
+        displayValue2: '5-9'
+      }]]
+    };
+  });
+
+  it('adds domino to start of chain when value matches', () => {
+    const result = addDominoToChainStart(state, 1, 0);
+    expect(result.chains[0]).toHaveLength(2);
+    expect(result.chains[0][0].id).toBe('domino2');
+    expect(result.dominos[1].inChain).toBe(true);
+  });
+
+  it('orients domino correctly when added to start', () => {
+    const result = addDominoToChainStart(state, 1, 0);
+    // domino2 connects at A-K (chain start), so displayValue2 should be A-K
+    expect(result.chains[0][0].displayValue2).toBe('A-K');
+  });
+});
+
+describe('addDominoToChain (legacy)', () => {
   let state;
   let domino1;
   let domino2;
@@ -515,7 +693,7 @@ describe('addDominoToChain', () => {
     };
   });
 
-  it('starts new chain with first domino', () => {
+  it('starts new chain with first domino when no chain specified', () => {
     const result = addDominoToChain(state, 0);
     expect(result.chains).toHaveLength(1);
     expect(result.chains[0]).toHaveLength(1);
@@ -526,7 +704,7 @@ describe('addDominoToChain', () => {
     // First add domino1 (A-K | 5-9)
     let result = addDominoToChain(state, 0);
     // Then add domino2 (3-J | 5-9) which connects at 5-9
-    result = addDominoToChain(result, 1);
+    result = addDominoToChain(result, 1, 0);
     expect(result.chains[0]).toHaveLength(2);
   });
 
@@ -546,7 +724,7 @@ describe('addDominoToChain', () => {
     };
 
     let result = addDominoToChain(stateWithDisconnected, 0);
-    result = addDominoToChain(result, 1);
+    result = addDominoToChain(result, 1, 0);
     expect(result.chains).toHaveLength(2);
   });
 
@@ -557,76 +735,8 @@ describe('addDominoToChain', () => {
   });
 });
 
-describe('removeLastFromChain', () => {
-  let state;
-
-  beforeEach(() => {
-    const domino = {
-      id: 'domino1',
-      value1: 'A-K',
-      value2: '5-9',
-      inChain: true
-    };
-    state = {
-      ...createInitialState(),
-      dominos: [{ ...domino, inChain: true }],
-      chains: [[{
-        ...domino,
-        displayValue1: 'A-K',
-        displayValue2: '5-9'
-      }]]
-    };
-  });
-
-  it('removes last domino from chain', () => {
-    const result = removeLastFromChain(state, 0);
-    expect(result.chains).toHaveLength(0); // Empty chains are removed
-    expect(result.dominos[0].inChain).toBe(false);
-  });
-
-  it('returns same state when chain is empty', () => {
-    const emptyState = { ...state, chains: [[]] };
-    const result = removeLastFromChain(emptyState, 0);
-    expect(result).toBe(emptyState);
-  });
-});
-
-describe('clearChain', () => {
-  let state;
-
-  beforeEach(() => {
-    const domino1 = { id: 'd1', inChain: true };
-    const domino2 = { id: 'd2', inChain: true };
-    state = {
-      ...createInitialState(),
-      dominos: [
-        { ...domino1, inChain: true },
-        { ...domino2, inChain: true }
-      ],
-      chains: [
-        [{ ...domino1, displayValue1: 'A-K', displayValue2: '5-9' }],
-        [{ ...domino2, displayValue1: '2-Q', displayValue2: '3-J' }]
-      ]
-    };
-  });
-
-  it('clears specific chain', () => {
-    const result = clearChain(state, 0);
-    expect(result.chains).toHaveLength(1);
-    expect(result.dominos[0].inChain).toBe(false);
-    expect(result.dominos[1].inChain).toBe(true);
-  });
-
-  it('clears all chains when chainIndex is null', () => {
-    const result = clearChain(state, null);
-    expect(result.chains).toHaveLength(0);
-    expect(result.dominos[0].inChain).toBe(false);
-    expect(result.dominos[1].inChain).toBe(false);
-  });
-});
-
 describe('canJoinChains', () => {
-  it('returns true when chain ends match', () => {
+  it('returns true when chain1 end matches chain2 start', () => {
     const chain1 = [{ displayValue1: 'A-K', displayValue2: '5-9' }];
     const chain2 = [{ displayValue1: '5-9', displayValue2: '2-Q' }];
     expect(canJoinChains(chain1, chain2)).toBe(true);
@@ -635,6 +745,18 @@ describe('canJoinChains', () => {
   it('returns true when chain1 end matches chain2 end (reverse)', () => {
     const chain1 = [{ displayValue1: 'A-K', displayValue2: '5-9' }];
     const chain2 = [{ displayValue1: '2-Q', displayValue2: '5-9' }];
+    expect(canJoinChains(chain1, chain2)).toBe(true);
+  });
+
+  it('returns true when chain1 start matches chain2 start', () => {
+    const chain1 = [{ displayValue1: 'A-K', displayValue2: '5-9' }];
+    const chain2 = [{ displayValue1: 'A-K', displayValue2: '2-Q' }];
+    expect(canJoinChains(chain1, chain2)).toBe(true);
+  });
+
+  it('returns true when chain1 start matches chain2 end', () => {
+    const chain1 = [{ displayValue1: 'A-K', displayValue2: '5-9' }];
+    const chain2 = [{ displayValue1: '2-Q', displayValue2: 'A-K' }];
     expect(canJoinChains(chain1, chain2)).toBe(true);
   });
 
@@ -662,10 +784,23 @@ describe('joinChains', () => {
     };
   });
 
-  it('joins compatible chains', () => {
+  it('joins compatible chains (end to start)', () => {
     const result = joinChains(state, 0, 1);
     expect(result.chains).toHaveLength(1);
     expect(result.chains[0]).toHaveLength(2);
+  });
+
+  it('joins chains when end matches end (reverses second chain)', () => {
+    const chain1 = [{ id: 'd1', displayValue1: 'A-K', displayValue2: '5-9' }];
+    const chain2 = [{ id: 'd2', displayValue1: '2-Q', displayValue2: '5-9' }];
+    const stateEndEnd = { ...state, chains: [chain1, chain2] };
+
+    const result = joinChains(stateEndEnd, 0, 1);
+    expect(result.chains).toHaveLength(1);
+    expect(result.chains[0]).toHaveLength(2);
+    // Second domino should be reversed
+    expect(result.chains[0][1].displayValue1).toBe('5-9');
+    expect(result.chains[0][1].displayValue2).toBe('2-Q');
   });
 
   it('returns same state for same chain indices', () => {
@@ -699,6 +834,30 @@ describe('reverseChain', () => {
     expect(reversed[1].id).toBe('d1');
     expect(reversed[1].displayValue1).toBe('5-9');
     expect(reversed[1].displayValue2).toBe('A-K');
+  });
+});
+
+describe('reorderChains', () => {
+  it('reorders chains', () => {
+    const state = {
+      ...createInitialState(),
+      chains: [[{ id: 'd1' }], [{ id: 'd2' }]]
+    };
+    const result = reorderChains(state, 0, 1);
+    expect(result.chains[0][0].id).toBe('d2');
+    expect(result.chains[1][0].id).toBe('d1');
+  });
+
+  it('returns same state for same indices', () => {
+    const state = { ...createInitialState(), chains: [[{ id: 'd1' }]] };
+    const result = reorderChains(state, 0, 0);
+    expect(result).toBe(state);
+  });
+
+  it('returns same state for invalid indices', () => {
+    const state = { ...createInitialState(), chains: [[{ id: 'd1' }]] };
+    expect(reorderChains(state, -1, 0)).toBe(state);
+    expect(reorderChains(state, 0, 5)).toBe(state);
   });
 });
 
@@ -784,15 +943,17 @@ describe('getTotalChainLength', () => {
 });
 
 describe('undoState', () => {
-  it('restores previous state', () => {
+  it('restores previous state but keeps chains', () => {
     const previousState = createInitialState();
     const currentState = {
       ...previousState,
       moveCount: 5,
+      chains: [[{ id: 'd1' }]], // Chains should be preserved
       history: [{ ...previousState }]
     };
     const result = undoState(currentState);
     expect(result.moveCount).toBe(0);
+    expect(result.chains).toHaveLength(1); // Chains preserved
     expect(result.history).toHaveLength(0);
   });
 
@@ -842,18 +1003,6 @@ describe('reorderDominos', () => {
   });
 });
 
-describe('reorderChains', () => {
-  it('reorders chains', () => {
-    const state = {
-      ...createInitialState(),
-      chains: [[{ id: 'd1' }], [{ id: 'd2' }]]
-    };
-    const result = reorderChains(state, 0, 1);
-    expect(result.chains[0][0].id).toBe('d2');
-    expect(result.chains[1][0].id).toBe('d1');
-  });
-});
-
 describe('countTableauCards', () => {
   it('counts all cards in tableau', () => {
     const state = createInitialState();
@@ -862,5 +1011,220 @@ describe('countTableauCards', () => {
 
   it('returns 0 for empty tableau', () => {
     expect(countTableauCards(Array(8).fill([]))).toBe(0);
+  });
+});
+
+describe('getConnectableChains', () => {
+  it('returns chains where domino can connect to end', () => {
+    const domino = { value1: 'A-K', value2: '5-9' };
+    const chains = [
+      [{ displayValue1: '2-Q', displayValue2: 'A-K' }],
+      [{ displayValue1: '3-J', displayValue2: '4-10' }]
+    ];
+    const result = getConnectableChains(domino, chains);
+    expect(result).toContainEqual({ chainIndex: 0, position: 'end' });
+    expect(result.some(r => r.chainIndex === 1)).toBe(false);
+  });
+
+  it('returns chains where domino can connect to start', () => {
+    const domino = { value1: 'A-K', value2: '5-9' };
+    const chains = [
+      [{ displayValue1: '5-9', displayValue2: '2-Q' }]
+    ];
+    const result = getConnectableChains(domino, chains);
+    expect(result).toContainEqual({ chainIndex: 0, position: 'start' });
+  });
+
+  it('returns multiple positions if domino can connect to both ends', () => {
+    const domino = { value1: 'A-K', value2: 'A-K' };
+    const chains = [
+      [{ displayValue1: 'A-K', displayValue2: 'A-K' }]
+    ];
+    const result = getConnectableChains(domino, chains);
+    expect(result).toHaveLength(2);
+  });
+});
+
+describe('canConnectToChainEnd', () => {
+  it('returns true when domino value matches chain end', () => {
+    const domino = { value1: '5-9', value2: '3-J' };
+    const chain = [{ displayValue1: 'A-K', displayValue2: '5-9' }];
+    expect(canConnectToChainEnd(domino, chain)).toBe(true);
+  });
+
+  it('returns true for empty chain', () => {
+    const domino = { value1: 'A-K', value2: '5-9' };
+    expect(canConnectToChainEnd(domino, [])).toBe(true);
+  });
+
+  it('returns false when no value matches chain end', () => {
+    const domino = { value1: '2-Q', value2: '3-J' };
+    const chain = [{ displayValue1: 'A-K', displayValue2: '5-9' }];
+    expect(canConnectToChainEnd(domino, chain)).toBe(false);
+  });
+});
+
+describe('canConnectToChainStart', () => {
+  it('returns true when domino value matches chain start', () => {
+    const domino = { value1: 'A-K', value2: '3-J' };
+    const chain = [{ displayValue1: 'A-K', displayValue2: '5-9' }];
+    expect(canConnectToChainStart(domino, chain)).toBe(true);
+  });
+
+  it('returns true for empty chain', () => {
+    const domino = { value1: 'A-K', value2: '5-9' };
+    expect(canConnectToChainStart(domino, [])).toBe(true);
+  });
+
+  it('returns false when no value matches chain start', () => {
+    const domino = { value1: '2-Q', value2: '3-J' };
+    const chain = [{ displayValue1: 'A-K', displayValue2: '5-9' }];
+    expect(canConnectToChainStart(domino, chain)).toBe(false);
+  });
+});
+
+describe('State Persistence', () => {
+  beforeEach(() => {
+    // Clear localStorage before each test
+    localStorage.clear();
+  });
+
+  describe('saveState', () => {
+    it('saves state to localStorage', () => {
+      const state = createInitialState();
+      saveState(state);
+
+      const saved = localStorage.getItem('tiki-solitaire-state');
+      expect(saved).not.toBeNull();
+
+      const parsed = JSON.parse(saved);
+      expect(parsed.tableau).toHaveLength(8);
+      expect(parsed.pairs).toEqual([]);
+      expect(parsed.dominos).toEqual([]);
+      expect(parsed.chains).toEqual([]);
+      expect(parsed.moveCount).toBe(0);
+    });
+
+    it('does not save history to localStorage', () => {
+      const state = {
+        ...createInitialState(),
+        history: [{ tableau: [], pairs: [], dominos: [], chains: [], moveCount: 0 }]
+      };
+      saveState(state);
+
+      const saved = localStorage.getItem('tiki-solitaire-state');
+      const parsed = JSON.parse(saved);
+      expect(parsed.history).toBeUndefined();
+    });
+
+    it('handles localStorage errors gracefully', () => {
+      // Mock localStorage to throw
+      const originalSetItem = localStorage.setItem;
+      localStorage.setItem = () => { throw new Error('Storage full'); };
+
+      const state = createInitialState();
+      // Should not throw
+      expect(() => saveState(state)).not.toThrow();
+
+      localStorage.setItem = originalSetItem;
+    });
+  });
+
+  describe('loadState', () => {
+    it('returns null when no saved state', () => {
+      const loaded = loadState();
+      expect(loaded).toBeNull();
+    });
+
+    it('loads valid saved state', () => {
+      const state = createInitialState();
+      saveState(state);
+
+      const loaded = loadState();
+      expect(loaded).not.toBeNull();
+      expect(loaded.tableau).toHaveLength(8);
+      expect(loaded.history).toEqual([]); // History should be fresh
+    });
+
+    it('returns null for invalid JSON', () => {
+      localStorage.setItem('tiki-solitaire-state', 'not valid json');
+      const loaded = loadState();
+      expect(loaded).toBeNull();
+    });
+
+    it('returns null for state with invalid tableau', () => {
+      localStorage.setItem('tiki-solitaire-state', JSON.stringify({
+        tableau: [[]], // Only 1 column instead of 8
+        pairs: [],
+        dominos: [],
+        chains: [],
+        moveCount: 0
+      }));
+      const loaded = loadState();
+      expect(loaded).toBeNull();
+    });
+
+    it('returns null for state with non-array tableau', () => {
+      localStorage.setItem('tiki-solitaire-state', JSON.stringify({
+        tableau: 'not an array',
+        pairs: [],
+        dominos: [],
+        chains: [],
+        moveCount: 0
+      }));
+      const loaded = loadState();
+      expect(loaded).toBeNull();
+    });
+
+    it('preserves pairs, dominos, chains, and moveCount', () => {
+      const pair = makePair(makeCard('A', '♥'), makeCard('K', '♣'));
+      const domino = {
+        id: 'test-domino',
+        value1: 'A-K',
+        value2: '5-9',
+        pair1: pair,
+        pair2: makePair(makeCard('5', '♦'), makeCard('9', '♠')),
+        cards: [],
+        inChain: false
+      };
+      const state = {
+        tableau: Array(8).fill([]),
+        pairs: [pair],
+        dominos: [domino],
+        chains: [[{ ...domino, displayValue1: 'A-K', displayValue2: '5-9' }]],
+        moveCount: 42,
+        history: []
+      };
+      saveState(state);
+
+      const loaded = loadState();
+      expect(loaded.pairs).toHaveLength(1);
+      expect(loaded.dominos).toHaveLength(1);
+      expect(loaded.chains).toHaveLength(1);
+      expect(loaded.moveCount).toBe(42);
+    });
+  });
+
+  describe('clearSavedState', () => {
+    it('removes saved state from localStorage', () => {
+      const state = createInitialState();
+      saveState(state);
+
+      expect(localStorage.getItem('tiki-solitaire-state')).not.toBeNull();
+
+      clearSavedState();
+
+      expect(localStorage.getItem('tiki-solitaire-state')).toBeNull();
+    });
+
+    it('handles localStorage errors gracefully', () => {
+      const originalRemoveItem = localStorage.removeItem;
+      localStorage.removeItem = () => { throw new Error('Storage error'); };
+
+      // Should not throw
+      expect(() => clearSavedState()).not.toThrow();
+
+      localStorage.removeItem = originalRemoveItem;
+    });
   });
 });
